@@ -1,0 +1,13 @@
+{
+    "Input":{
+        "ConnectInstanceId":"AAABBBCCC"
+    },
+    "ResourceFilters":
+    {
+        "ContactFlows":["qna-sample"]
+    },
+    "Output":{
+        "Filename": "contact-flows.json",
+        "TemplateDescription":"Connect Contact Flows"
+    }
+}

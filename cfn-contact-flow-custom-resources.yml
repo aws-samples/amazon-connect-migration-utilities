@@ -1,0 +1,67 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+
+Resources:
+  CreateContactFlowCustomResource:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: cfn-create-contact-flow
+      CodeUri: ./custom-resources/create-contact-flow
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Timeout: 900
+      Policies:
+        Statement:
+          - Effect: Allow
+            Action:
+            - connect:CreateContactFlow
+            - connect:UpdateContactFlowContent
+            - connect:UpdateContactFlowName
+            Resource: "*"
+  CFNConnectAssociateLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: cfn-associate-lambda-connect 
+      Handler: index.handler
+      Runtime: nodejs12.x
+      CodeUri: ./custom-resources/create-connect-lambda-permission
+      Description: 'custom cloudformation resource used to associate a Lambda with a Connect instance'
+      MemorySize: 256
+      Timeout: 300
+      Policies:
+        - Statement: 
+          - Sid: Connect
+            Effect: "Allow"
+            Action: 
+            - connect:AssociateLambdaFunction
+            - connect:DisassociateLambdaFunction
+            - connect:ListLambdaFunctions
+            - connect:AssociateLambdaFunction
+            - connect:AssociateLambdaFunction
+            - lambda:ListFunctions
+            - lambda:AddPermission
+            - lambda:RemovePermission
+            Resource:
+            - !Sub "arn:aws:connect:*:${AWS::AccountId}:instance/*"
+            - !Sub "arn:aws:lambda:*:${AWS::AccountId}:function:*" 
+
+
+Outputs:
+  CreateContactFlowCustomResource:
+    Value: !GetAtt  CreateContactFlowCustomResource.Arn
+    Export:
+      Name: CFNCreateContactFlow
+  CFNConnectAssociateLambda:
+    Description: Custom resource to associate a lambda to a connect instance
+    Value:
+      Fn::GetAtt:
+      - CFNConnectAssociateLambda
+      - Arn
+    Export:
+      Name: CFNConnectAssociateLambda

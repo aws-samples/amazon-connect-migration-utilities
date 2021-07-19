@@ -1,0 +1,15 @@
+{
+  "name": "create-contact-flow",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "dependencies": {
+    "aws-sdk": "^2.944.0",
+    "cfn-lambda": "^5.1.0",
+    "cfn-response": "^1.0.1"
+  }
+}
