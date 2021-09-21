@@ -40,7 +40,22 @@ exports.handler = CfnLambda(
     Update: Update,
     // Contact Flows can't be deleted
     Delete: (RequestPhysicalID, CfnRequestParams, reply) => {
-      reply(null, RequestPhysicalID);
-    },
-  } 
-);
+      let connect = new AWS.Connect()
+      console.log("Deleting....")
+      connect.describeContactFlow({
+        ContactFlowId: RequestPhysicalID,
+        InstanceId: CfnRequestParams.InstanceId
+      }).promise()
+        .then(data => connect.updateContactFlowName({
+          ContactFlowId: RequestPhysicalID,
+          InstanceId: CfnRequestParams.InstanceId,
+          Description: "Renamed by CloudFormation",
+          Name: "ZZZZ_DELETED_" + data.ContactFlow.Name + Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 5)
+        }).promise())
+        .then(() => reply(null, RequestPhysicalID))
+        .catch(e => {
+          console.log(e)
+          reply(e, RequestPhysicalID)}
+        )
+    }
+  })

@@ -16,7 +16,7 @@ template = {
     "Resources": {}
 }
 
-phone_number_mappings= config["Input"]["PhoneNumberMappings"] if PhoneNumberMappings in config["Input"] else {}
+phone_number_mappings= config["Input"]["PhoneNumberMappings"] if "PhoneNumberMappings" in config["Input"] else {}
 
 client = boto3.client('connect')
 paginator = client.get_paginator('list_contact_flows')
