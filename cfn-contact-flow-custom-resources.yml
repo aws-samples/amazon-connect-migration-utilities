@@ -23,6 +23,7 @@ Resources:
             - connect:CreateContactFlow
             - connect:UpdateContactFlowContent
             - connect:UpdateContactFlowName
+            - connect:DescribeContactFlow
             Resource: "*"
   CFNConnectAssociateLambda:
     Type: 'AWS::Serverless::Function'

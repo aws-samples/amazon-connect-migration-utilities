@@ -1,6 +1,11 @@
 {
     "Input":{
-        "ConnectInstanceId":"AAABBBCCC"
+        "ConnectInstanceId":"AAABBBCCC",
+        "PhoneNumberMappings":
+        {
+            "+15551234567":"+15557654321",
+            "+15556767671":"+16664351235"
+        }
     },
     "ResourceFilters":
     {

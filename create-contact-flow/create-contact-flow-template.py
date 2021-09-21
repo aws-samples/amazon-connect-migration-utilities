@@ -16,6 +16,8 @@ template = {
     "Resources": {}
 }
 
+phone_number_mappings= config["Input"]["PhoneNumberMappings"] if "PhoneNumberMappings" in config["Input"] else {}
+
 client = boto3.client('connect')
 paginator = client.get_paginator('list_contact_flows')
 
@@ -71,6 +73,8 @@ def export_contact_flow(name, resource_type, service_token):
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
             content = template["Resources"][resource_name]["Properties"]["Content"]
             content = content.replace(account_number, "${AWS::AccountId}")
+            for source_phone,target_phone in phone_number_mappings.items():
+                content = content.replace(source_phone,target_phone)
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content }
             
             content = content.replace(config["Input"]["ConnectInstanceId"], "${ConnectInstanceID}")

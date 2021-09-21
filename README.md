@@ -30,7 +30,7 @@ Connect does not support deleting contact flows.
 From the command line, run the following commands. This will deploy an AWS Lambda custom resource that can be called by your CloudFormation template.
 
 ```bash
-sam build -t cfn-contact-flow-custom-resources .yml
+sam build -t cfn-contact-flow-custom-resources.yml
 sam deploy  --template-file .aws-sam/build/template.yaml --stack-name cfn-contact-flow-custom-resources   --capabilities "CAPABILITY_NAMED_IAM" --resolve-s3
 ```
 
@@ -70,7 +70,12 @@ First create a config.json file in the create contact flow directory:
 ```json
 {
     "Input":{
-        "ConnectInstanceId":"<Your connect instance ID>"
+        "ConnectInstanceId":"<Your connect instance ID>",
+        "PhoneNumberMappings":
+        {
+            "+15551234567":"+15557654321",
+            "+15556767671":"+16664351235"
+        }
     },
     "ResourceFilters":
     {
@@ -82,11 +87,13 @@ First create a config.json file in the create contact flow directory:
     }
 }
 ```
-
-- ConnectInstanceId -- the ID of the Connect instance containing your contact flows
-- ContactFlows - The exporter will export any *published* contact flows where the name contains one of the listed words
-- Filename - The name of the output CloudFormation template.
-- TemplateDescription - Describes the purpose of the stack.
+| Field  |Description   |
+|---|---|
+| ConnectInstanceId  |  the ID of the Connect instance containing your contact flows |
+| PhoneNumberMappings | the exporter will replace the phone number on the left with the phone number on the right.The phone number must exist in the destination account |
+|ContactFlows | The exporter will export any *published* contact flows where the name contains one of the listed words |
+| Filename | The name of the output CloudFormation template. |
+| TemplateDescription |  Describes the purpose of the stack. |
 
 Then run the script:
 
@@ -104,7 +111,10 @@ The template requires one parameter, ConnectInstanceId, which should be the inst
 
 - Replaces the source account number with the ${AWS::AccountId}
 - Replaces the source Connect Instance Id with ${ConnectInstanceID}
+- Allows you to map source phone number references to phone numbers in the destination.
 - Replaces references in TransferToFlow to the correct destination references
+- Connect does not allow you to delete a contact flow.  When a stack is deleted, CFNCreateContactFlow renames the contact flow to ZZZZ_Deleted_{contact flow name} and appends 8 random letters to the end.
+
 
 ### Using the CFNConnectAssociateLambda custom resource
 
