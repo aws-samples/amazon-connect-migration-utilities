@@ -30,7 +30,7 @@ Connect does not support deleting contact flows.
 From the command line, run the following commands. This will deploy an AWS Lambda custom resource that can be called by your CloudFormation template.
 
 ```bash
-sam build -t cfn-contact-flow-custom-resources .yml
+sam build -t cfn-contact-flow-custom-resources.yml
 sam deploy  --template-file .aws-sam/build/template.yaml --stack-name cfn-contact-flow-custom-resources   --capabilities "CAPABILITY_NAMED_IAM" --resolve-s3
 ```
 
