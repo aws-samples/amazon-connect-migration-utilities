@@ -19,16 +19,17 @@ template = {
 phone_number_mappings = config["Input"]["PhoneNumberMappings"] if "PhoneNumberMappings" in config["Input"] else {}
 
 client = boto3.client('connect')
-paginator = client.get_paginator('list_contact_flows')
 
 sts_client = boto3.client("sts")
 account_number = sts_client.get_caller_identity()["Account"]
 
 
 contact_flows = {}
+contact_flow_modules = {}
 
 
 def export_contact_flow(name, resource_type):
+    paginator = client.get_paginator('list_contact_flows')
     for page in paginator.paginate(InstanceId=config["Input"]["ConnectInstanceId"],
                                    ContactFlowTypes=['CONTACT_FLOW',
                                                      'CUSTOMER_QUEUE',
@@ -52,7 +53,6 @@ def export_contact_flow(name, resource_type):
                     InstanceId=config["Input"]["ConnectInstanceId"],
                     ContactFlowId=contact_flow["Id"]
                 )["ContactFlow"]
-                print(json.dumps(properties))
             except client.exceptions.ContactFlowNotPublishedException:
                 print(f"Warning: {contact_flow['Name']} is not published, Unable to export.")
                 continue
@@ -74,27 +74,65 @@ def export_contact_flow(name, resource_type):
             content = content.replace(account_number, "${AWS::AccountId}")
             for source_phone, target_phone in phone_number_mappings.items():
                 content = content.replace(source_phone,target_phone)
-            template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content }
-            
+            template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content }           
             content = content.replace(config["Input"]["ConnectInstanceId"], "${ConnectInstanceID}")
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
-
             template["Resources"][resource_name]["Properties"]["Name"] = {"Fn::Sub":template["Resources"][resource_name]["Properties"]["Name"] + "${ResourceSuffix}"}
-    template["Parameters"] = {
-        "ConnectInstanceID": {
-            "Type": "String",
-            "AllowedPattern": ".+",
-            "ConstraintDescription": "ConnectInstanceID is required"
-        },
-        "ResourceSuffix": {
-            "Type": "String",
-            "Default": "",
-            "Description": "Optional suffix to add each resource"
-        }
-    }
 
 
-def add_dependencies():
+import time 
+def export_contact_flow_modules(name, resource_type):
+    paginator = client.get_paginator('list_contact_flow_modules')
+    for page in paginator.paginate(InstanceId=config["Input"]["ConnectInstanceId"],
+                                   ContactFlowModuleState = "active",
+                                   PaginationConfig={
+                                                     "MaxItems": 50,
+                                                     "PageSize": 50,
+                                    }):
+
+        for contact_flow_module in page["ContactFlowModulesSummaryList"]:
+            if(name not in contact_flow_module["Name"]):
+                continue
+            
+            print(contact_flow_module["Id"].split("/")[-1])
+            print(config["Input"]["ConnectInstanceId"])
+            properties = client.describe_contact_flow_module(
+                InstanceId=config["Input"]["ConnectInstanceId"],
+                ContactFlowModuleId=contact_flow_module["Id"].split("/")[-1]
+            )
+
+            properties = properties["ContactFlowModule"]
+
+
+            properties["InstanceArn"] = {"Ref": "ConnectInstanceID"}
+            resource_name = re.sub(r'[\W_]+', '', contact_flow_module["Name"])+"Module"
+            contact_flow_modules[contact_flow_module["Id"]] = resource_name
+            template["Resources"].update(
+                {resource_name: {
+                    "Type": resource_type,
+                    "Properties": {
+                    }
+                }})
+            excluded_properties = ["Id", "Arn", "ResponseMetadata","InstanceId","Status"]
+            keys_to_add = list(properties.keys() - set(excluded_properties))
+
+            properties_to_add = list(map(lambda x: {x: properties[x]}, keys_to_add))
+            template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
+            content = template["Resources"][resource_name]["Properties"]["Content"]
+            content = content.replace(account_number, "${AWS::AccountId}")
+            for source_phone, target_phone in phone_number_mappings.items():
+                content = content.replace(source_phone,target_phone)
+            template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content }           
+            content = content.replace(config["Input"]["ConnectInstanceId"], "${ConnectInstanceID}")
+            template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
+            template["Resources"][resource_name]["Properties"]["Name"] = {"Fn::Sub":template["Resources"][resource_name]["Properties"]["Name"] + "${ResourceSuffix}"}
+            print("here")
+            breakpoint()
+
+
+
+
+def replace_contact_flowids():
     for resource in template["Resources"]:
         content = json.loads(template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"])
         transfers = list(filter(lambda t: t["Type"] == "TransferToFlow", content["Actions"]))
@@ -104,11 +142,35 @@ def add_dependencies():
             new_arn = contact_flow_arn.replace(contact_flow_id, "${" + contact_flows[contact_flow_id] + ".ContactFlowId}")
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_arn, new_arn)
 
+def replace_contact_module_flowids():
+    for resource in template["Resources"]:
+        content = json.loads(template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"])
+        modules = list(filter(lambda t: t["Type"] == "InvokeFlowModule", content["Actions"]))
+        for module in modules:
+            contact_flow_id = module["Parameters"]["FlowModuleId"]
+            new_arn =  "${" + contact_flow_modules[contact_flow_id] + "}"
+            template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_id, new_arn)
 
 for name in config["ResourceFilters"]["ContactFlows"]:
     export_contact_flow(name, "AWS::Connect::ContactFlow")
-add_dependencies()
+    export_contact_flow_modules(name, "AWS::Connect::ContactFlowModule")  
+   
+replace_contact_flowids()
+replace_contact_module_flowids()
 
+
+template["Parameters"] = {
+    "ConnectInstanceID": {
+        "Type": "String",
+        "AllowedPattern": ".+",
+        "ConstraintDescription": "ConnectInstanceID is required"
+    },
+    "ResourceSuffix": {
+        "Type": "String",
+        "Default": "",
+        "Description": "Optional suffix to add each resource"
+    }
+}
 
 with open(os.path.join(sys.path[0], config["Output"]["Filename"]), 'w') as f:
     json.dump(template, f, indent=4, default=str)
