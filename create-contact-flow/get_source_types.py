@@ -1,17 +1,16 @@
 import boto3
-import re
 import os
 import sys
 import json
-import pydash
-from functools import reduce
+import pydash as _
 
-mapping={}
+mapping = {}
 
 with open(os.path.join(sys.path[0], 'config.json'), "r") as file:
     config = json.load(file)
 
 client = boto3.client('connect')
+
 
 def get_types():
     paginator = client.get_paginator('list_contact_flow_modules')
@@ -24,8 +23,8 @@ def get_types():
         mapping["ContactFlowModulesSummaryList"] = {}
         for module in page["ContactFlowModulesSummaryList"]:
             mapping["ContactFlowModulesSummaryList"][module["Name"]] = {
-                "Arn":module["Arn"],
-                "Id":module["Id"]
+                "Arn": module["Arn"],
+                "Id": module["Id"]
             }
 
     paginator = client.get_paginator('list_contact_flows')
@@ -47,32 +46,32 @@ def get_types():
         for module in page["ContactFlowSummaryList"]:
             print(module)
             mapping["ContactFlowSummaryList"][module["Name"]] = {
-                "Arn":module["Arn"],
-                "Id":module["Id"]
+                "Arn": module["Arn"],
+                "Id": module["Id"]
             }
-            
+
     paginator = client.get_paginator('list_hours_of_operations')
     for page in paginator.paginate(InstanceId=config["Output"]["ConnectInstanceId"],
                                    PaginationConfig={
                                                      "MaxItems": 50,
                                                      "PageSize": 50,
                                     }):
-        mapping["HoursOfOperationSummaryList"]={}
+        mapping["HoursOfOperationSummaryList"] = {}
         for module in page["HoursOfOperationSummaryList"]:
             mapping["HoursOfOperationSummaryList"][module["Name"]] = module["Arn"]
-    
+
     paginator = client.get_paginator('list_phone_numbers')
     for page in paginator.paginate(InstanceId=config["Output"]["ConnectInstanceId"],
-                                   PhoneNumberTypes=["TOLL_FREE","DID"],
+                                   PhoneNumberTypes=["TOLL_FREE", "DID"],
                                    PaginationConfig={
                                                      "MaxItems": 50,
                                                      "PageSize": 50,
                                     }):
-        mapping["PhoneNumberSummaryList"]={}
+        mapping["PhoneNumberSummaryList"] = {}
         for module in page["PhoneNumberSummaryList"]:
             mapping["PhoneNumberSummaryList"][module["PhoneNumber"]] = {
-                "Arn":module["Arn"],
-                "Name":module["PhoneNumber"]
+                "Arn": module["Arn"],
+                "Name": module["PhoneNumber"]
             }
 
     paginator = client.get_paginator('list_prompts')
@@ -84,28 +83,28 @@ def get_types():
         mapping["PromptSummaryList"] = {}
         for module in page["PromptSummaryList"]:
             mapping["PromptSummaryList"][module["Name"]] = {
-                "Arn":module["Arn"],
-                "Id":module["Id"]
+                "Arn": module["Arn"],
+                "Id": module["Id"]
             }
 
     paginator = client.get_paginator('list_queues')
     for page in paginator.paginate(InstanceId=config["Output"]["ConnectInstanceId"],
-                                   QueueTypes = ["STANDARD","AGENT"],
+                                   QueueTypes=["STANDARD", "AGENT"],
                                    PaginationConfig={
                                                      "MaxItems": 50,
                                                      "PageSize": 50,
                                     }):
-        mapping["QueueSummaryList"] ={}
+        mapping["QueueSummaryList"] = {}
         for module in page["QueueSummaryList"]:
             if "Name" not in module:
                 continue
             mapping["QueueSummaryList"][module["Name"]] = {
-                "Arn":module["Arn"],
-                "Id":pydash.get(module,"Id")
+                "Arn": module["Arn"],
+                "Id": _.get(module, "Id")
             }
     paginator = client.get_paginator('list_quick_connects')
     for page in paginator.paginate(InstanceId=config["Output"]["ConnectInstanceId"],
-                                   QuickConnectTypes = ["USER","QUEUE","PHONE_NUMBER"],
+                                   QuickConnectTypes=["USER", "QUEUE", "PHONE_NUMBER"],
                                    PaginationConfig={
                                                      "MaxItems": 50,
                                                      "PageSize": 50,
@@ -113,8 +112,8 @@ def get_types():
         mapping["QuickConnectSummaryList"] = {}
         for module in page["QuickConnectSummaryList"]:
             mapping["QuickConnectSummaryList"][module["Name"]] = {
-                "Arn":module["Arn"],
-                "Id":module["Id"]
+                "Arn": module["Arn"],
+                "Id": module["Id"]
             }
 
     paginator = client.get_paginator('list_routing_profiles')
@@ -123,12 +122,13 @@ def get_types():
                                                      "MaxItems": 50,
                                                      "PageSize": 50,
                                     }):
-        mapping["RoutingProfileSummaryList"] ={}
+        mapping["RoutingProfileSummaryList"] = {}
         for module in page["RoutingProfileSummaryList"]:
             mapping["RoutingProfileSummaryList"][module["Name"]] = {
-                "Arn":module["Arn"],
-                "Id":module["Id"]
+                "Arn": module["Arn"],
+                "Id": module["Id"]
             }
+
 
 get_types()
 with open(os.path.join(sys.path[0], config["Output"]["ManifestFileName"]), 'w') as f:
