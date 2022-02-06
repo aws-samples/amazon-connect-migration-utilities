@@ -4,6 +4,8 @@
 # Known Issues:
 #   Contact flows and modules can not have an apostrophe -- ie GetUserInput and PlayPrompt.
 #   describe_contact_flow and describe_contact_flow_module will error both in boto3 and from the CLI
+#
+#   Lex V2 references must be manually mapped
 
 import boto3
 import re
@@ -96,9 +98,6 @@ def export_contact_flow(name, resource_type):
             content = replace_with_mappings(content)
 
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
-            template["Resources"][resource_name]["Properties"]["Name"] = {
-                "Fn::Sub": template["Resources"][resource_name]["Properties"]["Name"] + "${ResourceSuffix}"
-            }
 
 
 def export_contact_flow_modules(name, resource_type):
@@ -147,9 +146,6 @@ def export_contact_flow_modules(name, resource_type):
             for source_phone, target_phone in phone_number_mappings.items():
                 content = content.replace(source_phone, target_phone)
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
-            template["Resources"][resource_name]["Properties"]["Name"] = {
-                "Fn::Sub": template["Resources"][resource_name]["Properties"]["Name"] + "${ResourceSuffix}"
-            }
 
             # The API returns the state as lowercase.  CF requires it to be uppercase.
             state = template["Resources"][resource_name]["Properties"]["State"].upper()
@@ -373,11 +369,6 @@ template["Parameters"] = {
         "Type": "String",
         "AllowedPattern": ".+",
         "ConstraintDescription": "ConnectInstanceArn is required"
-    },
-    "ResourceSuffix": {
-        "Type": "String",
-        "Default": "",
-        "Description": "Optional suffix to add each resource"
     }
 }
 
