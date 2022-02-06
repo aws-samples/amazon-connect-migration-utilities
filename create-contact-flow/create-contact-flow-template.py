@@ -4,15 +4,23 @@
 # Known Issues:
 #   Contact flows and modules can not have an apostrophe -- ie GetUserInput and PlayPrompt. 
 #   describe_contact_flow and describe_contact_flow_module will error both in boto3 and from the CLI
+
+
+from textwrap import indent
 import boto3
 import re
 import os
 import sys
 import json
 from functools import reduce
+import pydash as _
 
 with open(os.path.join(sys.path[0], 'config.json'), "r") as file:
     config = json.load(file)
+
+with open(os.path.join(sys.path[0], config["Output"]["ManifestFileName"]), "r") as file:
+    output_arns = json.load(file)
+
 template = {
     "AWSTemplateFormatVersion": "2010-09-09",
     "Description": config["Output"]["TemplateDescription"],
@@ -24,13 +32,21 @@ phone_number_mappings = config["Input"]["PhoneNumberMappings"] if "PhoneNumberMa
 client = boto3.client('connect')
 
 sts_client = boto3.client("sts")
-account_number = sts_client.get_caller_identity()["Account"]
+identity = sts_client.get_caller_identity()
+account_number = identity["Account"]
+
+connect_client = boto3.client('connect')
+connect_arn = connect_client.describe_instance(InstanceId=config["Input"]["ConnectInstanceId"])["Instance"]["Arn"]
+
+region = connect_arn.split(":")[3]
+partition = connect_arn.split(":")[1]
+
 
 
 contact_flows = {}
 contact_flow_modules = {}
 hours_of_operations = {}
-
+quick_connects = {}
 
 def export_contact_flow(name, resource_type):
     paginator = client.get_paginator('list_contact_flows')
@@ -60,7 +76,7 @@ def export_contact_flow(name, resource_type):
             except client.exceptions.ContactFlowNotPublishedException:
                 print(f"Warning: {contact_flow['Name']} is not published, Unable to export.")
                 continue
-            properties["InstanceArn"] = {"Ref": "ConnectInstanceID"}
+            properties["InstanceArn"] = {"Ref": "ConnectInstanceArn"}
             resource_name = re.sub(r'[\W_]+', '', contact_flow["Name"])
             contact_flows[contact_flow["Id"]] = resource_name
             template["Resources"].update(
@@ -69,17 +85,22 @@ def export_contact_flow(name, resource_type):
                     "Properties": {
                     }
                 }})
-            excluded_properties = ["Id", "Arn", "ResponseMetadata","InstanceId"]
+            excluded_properties = ["Id", "Arn", "ResponseMetadata","InstanceId","Tags","Description"]
             keys_to_add = list(properties.keys() - set(excluded_properties))
 
             properties_to_add = list(map(lambda x: {x: properties[x]}, keys_to_add))
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
             content = template["Resources"][resource_name]["Properties"]["Content"]
-            content = content.replace(account_number, "${AWS::AccountId}")
-            for source_phone, target_phone in phone_number_mappings.items():
-                content = content.replace(source_phone,target_phone)
-            template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content }           
-            content = content.replace(config["Input"]["ConnectInstanceId"], "${ConnectInstanceID}")
+
+            print(resource_name)
+            org_content = content + ""
+            content = replace_pseudo_parms(content)
+            content = replace_with_mappings(content)
+            breakpoint()
+
+
+            
+
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
             template["Resources"][resource_name]["Properties"]["Name"] = {"Fn::Sub":template["Resources"][resource_name]["Properties"]["Name"] + "${ResourceSuffix}"}
 
@@ -97,8 +118,6 @@ def export_contact_flow_modules(name, resource_type):
             if(name not in contact_flow_module["Name"]):
                 continue
             
-            print(contact_flow_module["Id"].split("/")[-1])
-            print(config["Input"]["ConnectInstanceId"])
             properties = client.describe_contact_flow_module(
                 InstanceId=config["Input"]["ConnectInstanceId"],
                 ContactFlowModuleId=contact_flow_module["Id"].split("/")[-1]
@@ -107,7 +126,7 @@ def export_contact_flow_modules(name, resource_type):
             properties = properties["ContactFlowModule"]
 
 
-            properties["InstanceArn"] = {"Ref": "ConnectInstanceID"}
+            properties["InstanceArn"] = {"Ref": "ConnectInstanceArn"}
             resource_name = re.sub(r'[\W_]+', '', contact_flow_module["Name"])+"Module"
             contact_flow_modules[contact_flow_module["Id"]] = resource_name
             template["Resources"].update(
@@ -116,19 +135,24 @@ def export_contact_flow_modules(name, resource_type):
                     "Properties": {
                     }
                 }})
-            excluded_properties = ["Id", "Arn", "ResponseMetadata","InstanceId","Status"]
+            excluded_properties = ["Id", "Arn", "ResponseMetadata","InstanceId","Status","Tags","Description"]
             keys_to_add = list(properties.keys() - set(excluded_properties))
 
             properties_to_add = list(map(lambda x: {x: properties[x]}, keys_to_add))
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
             content = template["Resources"][resource_name]["Properties"]["Content"]
-            content = content.replace(account_number, "${AWS::AccountId}")
+            print(resource_name)
+            content = replace_pseudo_parms(content)
+            content = replace_with_mappings(content)
+
+
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content }           
-            content = content.replace(config["Input"]["ConnectInstanceId"], "${ConnectInstanceID}")
+
+            for source_phone, target_phone in phone_number_mappings.items():
+                content = content.replace(source_phone,target_phone)
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
             template["Resources"][resource_name]["Properties"]["Name"] = {"Fn::Sub":template["Resources"][resource_name]["Properties"]["Name"] + "${ResourceSuffix}"}
-            print("here")
-            breakpoint()
+            template["Resources"][resource_name]["Properties"]["State"] = template["Resources"][resource_name]["Properties"]["State"].upper()
 
 def export_hours_of_operation(name, resource_type):
     paginator = client.get_paginator('list_hours_of_operations')
@@ -142,14 +166,13 @@ def export_hours_of_operation(name, resource_type):
             if(name not in hours_of_operation["Name"]):
                 continue
             
-            print(config["Input"]["ConnectInstanceId"])
             properties = client.describe_hours_of_operation(
                 InstanceId=config["Input"]["ConnectInstanceId"],
                 HoursOfOperationId=hours_of_operation["Id"].split("/")[-1]
             )["HoursOfOperation"]
 
 
-            properties["InstanceArn"] = {"Ref": "ConnectInstanceID"}
+            properties["InstanceArn"] = {"Ref": "ConnectInstanceArn"}
             resource_name = re.sub(r'[\W_]+', '', hours_of_operation["Name"])+"HoursOfOperation"
             hours_of_operations[hours_of_operation["Id"]] = resource_name
             template["Resources"].update(
@@ -158,13 +181,47 @@ def export_hours_of_operation(name, resource_type):
                     "Properties": {
                     }
                 }})
-            excluded_properties = ["Id", "Arn", "ResponseMetadata","InstanceId","HoursOfOperationId","HoursOfOperationArn"]
+            excluded_properties = ["Id", "Arn", "ResponseMetadata","InstanceId","HoursOfOperationId","HoursOfOperationArn","Tags","Description"]
             keys_to_add = list(properties.keys() - set(excluded_properties))
 
             properties_to_add = list(map(lambda x: {x: properties[x]}, keys_to_add))
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
             template["Resources"][resource_name]["Properties"]["Name"] = {"Fn::Sub":template["Resources"][resource_name]["Properties"]["Name"] + "${ResourceSuffix}"}
 
+def export_quick_connects(name, resource_type):
+    paginator = client.get_paginator('list_quick_connects')
+    for page in paginator.paginate(InstanceId=config["Input"]["ConnectInstanceId"],
+                                   QuickConnectTypes = ["USER","QUEUE","PHONE_NUMBER"],
+                                   PaginationConfig={
+                                                     "MaxItems": 50,
+                                                     "PageSize": 50,
+                                    }):
+
+        for quick_connect in page["QuickConnectSummaryList"]:
+            if(name not in quick_connect["Name"]):
+                continue
+            
+            properties = client.describe_quick_connect(
+                InstanceId=config["Input"]["ConnectInstanceId"],
+                QuickConnectId=quick_connect["Id"].split("/")[-1]
+            )["QuickConnect"]
+
+
+            properties["InstanceArn"] = {"Ref": "ConnectInstanceArn"}
+            resource_name = re.sub(r'[\W_]+', '', quick_connect["Name"])+"QuickConnect"
+            quick_connects[quick_connect["Id"]] = resource_name
+            template["Resources"].update(
+                {resource_name: {
+                    "Type": resource_type,
+                    "Properties": {
+                    }
+                }})
+            excluded_properties = ["Id", "Arn", "ResponseMetadata","InstanceId","QuickConnectId","QuickConnectARN","Tags","Description"]
+            keys_to_add = list(properties.keys() - set(excluded_properties))
+
+            properties_to_add = list(map(lambda x: {x: properties[x]}, keys_to_add))
+            template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
+            template["Resources"][resource_name]["Properties"]["Name"] = {"Fn::Sub":template["Resources"][resource_name]["Properties"]["Name"] + "${ResourceSuffix}"}
 
 
 def replace_contact_flowids():
@@ -176,19 +233,29 @@ def replace_contact_flowids():
         for transfer in transfers:
             contact_flow_arn = transfer["Parameters"]["ContactFlowId"]
             contact_flow_id = transfer["Parameters"]["ContactFlowId"].split("/")[-1]
-            new_arn = contact_flow_arn.replace(contact_flow_id, "${" + contact_flows[contact_flow_id] + ".ContactFlowId}")
+
+            new_arn = contact_flow_arn.replace(contact_flow_id, "${" + contact_flows[contact_flow_id] + ".ContactFlowArn}")
+            template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_arn, new_arn)
+        modules = list(filter(lambda t: t["Type"] == "UpdateContactEventHooks", content["Actions"]))
+        for module in modules:
+            contact_flow_id = module["Parameters"]["EventHooks"]["CustomerQueue"].split("/")[-1]
+            contact_flow_arn = module["Parameters"]["EventHooks"]["CustomerQueue"]
+
+            new_arn =  "${" + contact_flows[contact_flow_id] + ".ContactFlowArn}"
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_arn, new_arn)
 
 def replace_contact_module_flowids():
     for resource in template["Resources"]:
         if "Content" not in template["Resources"][resource]["Properties"]:
             continue
-        content = json.loads(template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"])
+        content = json.loads(template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]) #UpdateContactEventHooks
         modules = list(filter(lambda t: t["Type"] == "InvokeFlowModule", content["Actions"]))
         for module in modules:
             contact_flow_id = module["Parameters"]["FlowModuleId"]
             new_arn =  "${" + contact_flow_modules[contact_flow_id] + "}"
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_id, new_arn)
+        
+
 
 def replace_hours_of_operation():
     for resource in template["Resources"]:
@@ -209,9 +276,56 @@ def replace_hours_of_operation():
             new_arn =  "arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceID}/operating-hours/${"+hours_of_operations[hours_id]+".HoursOfOperationArn}"
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(hours_arn, new_arn)
 
+def replace_with_mappings(content):
+    content = replace_with_config_mappings(content)
+    contact_flow = json.loads(content)
+    metadata=_.get(contact_flow,"Metadata.ActionMetadata",{})
+    for flow_command in metadata:
+        action = metadata[flow_command]
+        content = replace_with_mappings_audio_prompt(content,action)
+        content = replace_with_mappings_queue(content,action)
+    
+    return content
 
+def replace_with_config_mappings(content):
+    for source_phone, target_phone in phone_number_mappings.items():
+        content = content.replace(source_phone,target_phone)
+    return content
+
+def replace_with_mappings_audio_prompt(content,action):
+    if "audio" in action:
+        for audio in action["audio"]:
+            if(_.get(audio,"type")=="Prompt"):
+                text = _.get(audio,"text")
+                source_id = _.get(audio,"id").split("/")[-1]
+                dest_id = _.get(output_arns,["PromptSummaryList",text,"Id"])
+                content = content.replace(source_id,dest_id)
+                print(json.dumps(json.loads(content),indent=2))
+                breakpoint()
+
+    return content
+
+def replace_with_mappings_queue(content,action):
+    if "queue" in action:
+        print(action)
+        text = _.get(action,"text")
+        queue_id = _.get(action,"id")
+        if(queue_id == None):
+            return content
+        source_id = queue_id.split("/")[-1]
+        dest_id = _.get(output_arns,["QueueSummaryList",text,"Id"])
+        content = content.replace(source_id,dest_id)
+    return content
+
+def replace_pseudo_parms(content):
+    content = content.replace(account_number, "${AWS::AccountId}")
+    content = content.replace(partition, "${AWS::Partition}")
+    content = content.replace(region, "${AWS::Region}")
+    content = content.replace(config["Input"]["ConnectInstanceId"], "${ConnectInstanceID}")
+    return content
 
 for name in config["ResourceFilters"]["ContactFlows"]:
+    #export_quick_connects(name,"AWS::Connect::QuickConnect")
     export_hours_of_operation(name,"AWS::Connect::HoursOfOperation")
     export_contact_flow(name, "AWS::Connect::ContactFlow")
     export_contact_flow_modules(name, "AWS::Connect::ContactFlowModule")
@@ -226,6 +340,11 @@ template["Parameters"] = {
         "Type": "String",
         "AllowedPattern": ".+",
         "ConstraintDescription": "ConnectInstanceID is required"
+    },
+        "ConnectInstanceArn": {
+        "Type": "String",
+        "AllowedPattern": ".+",
+        "ConstraintDescription": "ConnectInstanceArn is required"
     },
     "ResourceSuffix": {
         "Type": "String",

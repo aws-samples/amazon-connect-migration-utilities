@@ -90,7 +90,7 @@ First create a config.json file in the create contact flow directory:
 | Field  |Description   |
 |---|---|
 | ConnectInstanceId  |  the ID of the Connect instance containing your contact flows |
-| PhoneNumberMappings | the exporter will replace the phone number on the left with the phone number on the right.The phone number must exist in the destination account |
+| PhoneNumberMappings | (optional) the exporter will replace the phone number on the left with the phone number on the right.The phone number must exist in the destination account |
 |ContactFlows | The exporter will export any *published* contact flows where the name contains one of the listed words |
 | Filename | The name of the output CloudFormation template. |
 | TemplateDescription |  Describes the purpose of the stack. |

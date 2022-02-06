@@ -4,3 +4,5 @@ samconfig.toml
 .DS_Store
 .vscode/settings.json
 create-contact-flow/contact-flows.json
+create-contact-flow/config.json
+create-contact-flow/source-manifest.json
