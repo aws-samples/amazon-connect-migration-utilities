@@ -96,6 +96,7 @@ def export_contact_flow(name, resource_type):
             print(resource_name)
             content = replace_pseudo_parms(content)
             content = replace_with_mappings(content)
+            print(json.dumps(json.loads(content),indent=2))
 
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
 
@@ -259,25 +260,70 @@ def replace_contact_flowids():
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = \
                 template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_arn, new_arn)
 
+def get_dest_contact_flow_module(contact_flow_id):
+    contact_flow = client.describe_contact_flow_module(
+                InstanceId=config["Input"]["ConnectInstanceId"],
+                ContactFlowModuleId=contact_flow_id
+            )
+    contact_flow_name = contact_flow["ContactFlowModule"]["Name"]
+    id = _.get(output_arns,["ContactFlowModulesSummaryList",contact_flow_name,"Id"])
+    return {
+        "name":contact_flow_name,
+        "id":id
+    }
+
+    
+    
+
 
 def replace_contact_module_flowids():
     for resource in template["Resources"]:
         if "Content" not in template["Resources"][resource]["Properties"]:
             continue
         content = json.loads(template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"])
+        content_string = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]
         modules = list(filter(lambda t: t["Type"] == "InvokeFlowModule", content["Actions"]))
+        cf_vars = {}
         for module in modules:
             contact_flow_id = module["Parameters"]["FlowModuleId"]
-            new_arn = "${" + contact_flow_modules[contact_flow_id] + "}"
-            template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = \
-                template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_id, new_arn)
+            
+            dest_module = get_dest_contact_flow_module(contact_flow_id)
+            name = dest_module["name"]
+            if(contact_flow_id not in contact_flow_modules):
+                if(dest_module["id"] is None):
+                    raise Exception(
+                        f"The referenced module ${dest_module['name']} " +
+                        f"in the contact flow ${resource} was not exported and not found in " +
+                        f"in the destination Connect instance")
+                new_arn = dest_module["id"]
+            else:
+                new_arn = "${" + contact_flow_modules[contact_flow_id] + "}"
+                cf_vars[contact_flow_modules[contact_flow_id]] = {
+                    "Fn::Select":[
+                        3,
+                        {
+                            "Fn::Split":[
+                                "/",
+                                {
+                                    "Fn::GetAtt":[
+                                        "SimpleModuleModule",
+                                        "ContactFlowModuleArn"]
+                                }]
+                        }]
+                }
 
+
+            content_string  = content_string.replace(contact_flow_id, new_arn)
+
+        template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]= [content_string,cf_vars]
+
+        x = 1
 
 def replace_hours_of_operation():
     for resource in template["Resources"]:
         if "Content" not in template["Resources"][resource]["Properties"]:
             continue
-        content = json.loads(template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"])
+        content = json.loads(template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"][0])
         check_hours = list(filter(lambda t: t["Type"] == "CheckHoursOfOperation", content["Actions"]))
         for hours in check_hours:
             # Hours is optional in CheckHoursOfOperations.
@@ -292,8 +338,8 @@ def replace_hours_of_operation():
                 "${AWS::AccountId}:instance/${ConnectInstanceID}/operating-hours/${" + \
                 hours_of_operations[hours_id]+".HoursOfOperationArn}"
 
-            template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] =\
-                template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(hours_arn, new_arn)
+            template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"][0] =\
+                template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"][0].replace(hours_arn, new_arn)
 
 
 def replace_with_mappings(content):

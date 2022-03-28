@@ -14,13 +14,13 @@ client = boto3.client('connect')
 
 def get_types():
     paginator = client.get_paginator('list_contact_flow_modules')
+    mapping["ContactFlowModulesSummaryList"] = {}
     for page in paginator.paginate(InstanceId=config["Output"]["ConnectInstanceId"],
-                                   ContactFlowModuleState="Active",
+                                   ContactFlowModuleState="active",
                                    PaginationConfig={
                                                      "MaxItems": 50,
                                                      "PageSize": 50,
                                     }):
-        mapping["ContactFlowModulesSummaryList"] = {}
         for module in page["ContactFlowModulesSummaryList"]:
             mapping["ContactFlowModulesSummaryList"][module["Name"]] = {
                 "Arn": module["Arn"],

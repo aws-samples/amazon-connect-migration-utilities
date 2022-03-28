@@ -6,3 +6,10 @@ samconfig.toml
 create-contact-flow/contact-flows.json
 create-contact-flow/config.json
 create-contact-flow/source-manifest.json
+new_org
+new-m.json
+new.json
+orig-m.json
+.gitignore
+new.org
+orig.json
