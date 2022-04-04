@@ -178,6 +178,10 @@ def export_contact_flow_modules(name, resource_type):
             # Replace the hard coded partition, region, account number and Connect Instance ID with parameters
             content = replace_pseudo_parms(content)
 
+            # Attach any Lambdas found to the Connect instance
+            attach_lambdas(content)
+
+
             # some resource types are created by default when you create a Connect instance
             # the identifiers will be different between accounts.  Map the source identifiers to the destination
             content = replace_with_mappings(content)
@@ -191,6 +195,7 @@ def export_contact_flow_modules(name, resource_type):
             # The API returns the state as lowercase.  CF requires it to be uppercase.
             state = template["Resources"][resource_name]["Properties"]["State"].upper()
             template["Resources"][resource_name]["Properties"]["State"] = state
+
 
 # Uses the Connect APIs to retrieve hours of operations from the Connect instance
 # the format of the exported contact flows is not the same as what are exported from
@@ -238,6 +243,28 @@ def export_hours_of_operation(name, resource_type):
 
             properties_to_add = list(map(lambda x: {x: properties[x]}, keys_to_add))
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
+
+
+def attach_lambdas(content):
+    content =  json.loads(content)
+    lambda_attachments = list(filter(lambda t: t["Type"] == "InvokeLambdaFunction", content["Actions"]))
+
+    for attachment in lambda_attachments:
+        lambda_arn = _.get(attachment,"Parameters.LambdaFunctionARN")
+        lambda_name = lambda_arn.split(":")[-1]
+        resource_name = re.sub(r'[\W_]+', '', lambda_name)+"LambdaPermission"
+        template["Resources"].update(
+            {
+                resource_name: {
+                    "Type": "Custom::ConnectAssociateLambda",
+                    "Properties": {
+                        "InstanceId": {"Ref":"ConnectInstanceID"},
+                        "FunctionArn": lambda_arn,
+                        "ServiceToken": {"Fn::ImportValue":"CFNConnectAssociateLambda"}
+                    }
+                }
+            })
+
 
 # Uses the Connect APIs to retrieve quick connects from the Connect instance
 # the format of the exported contact flows is not the same as what are exported from
