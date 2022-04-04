@@ -105,6 +105,25 @@ Once you run the script, a CloudFormation template will be created that you can 
 
 The template requires one parameter, ConnectInstanceId, which should be the instance where you want to create your contact flows.
 
+## Supported Amazon Connect Types
+
+
+| Resource             | Level of support                          |
+|----------------------|-------------------------------------------|
+| Contact flows        | export and mapping support                |
+| Contact flow modules | export and mapping support                |
+| Hours of operations  | export                                    |
+| Audio prompts        | mapping                                   |
+| Queues               | mapping                                   |
+| Phone numbers        | mapping                                   |
+
+
+Definitions:
+
+- export - the script is able to read from a source Connect instance and export the definition in the CloudFormation template
+- mappings - the script is able to read from a manifest file created by ```create-source-manifest-file.py``` and map
+  the resource to the corresponding source resource.
+  
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
