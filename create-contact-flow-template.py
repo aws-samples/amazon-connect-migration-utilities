@@ -5,9 +5,9 @@
 #   Contact flows and modules can not have an apostrophe -- ie GetUserInput and PlayPrompt.
 #   describe_contact_flow and describe_contact_flow_module will error both in boto3 and from the CLI
 #
-#   Lex V2 references must be manually mapped
+#   Lex V2 references must be manually attached to the Connect instance
 #  
-#   Lambdas must be manually mapped
+#   Lambdas must be manually attached to the Connect instance
 
 import boto3
 import re
