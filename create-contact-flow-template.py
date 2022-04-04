@@ -6,6 +6,8 @@
 #   describe_contact_flow and describe_contact_flow_module will error both in boto3 and from the CLI
 #
 #   Lex V2 references must be manually mapped
+#  
+#   Lambdas must be manually mapped
 
 import boto3
 import re
@@ -15,8 +17,12 @@ import json
 from functools import reduce
 import pydash as _
 
+# config.json contains the configuration information needed by the rest of the script
 with open(os.path.join(sys.path[0], 'config.json'), "r") as file:
     config = json.load(file)
+
+# The manifest file contains mappings of resources and their identifiers from the source
+# Amazon Connect instance.  This file is created by the create-source-manifest-file.py script
 
 with open(os.path.join(sys.path[0], config["Output"]["ManifestFileName"]), "r") as file:
     output_arns = json.load(file)
@@ -27,17 +33,34 @@ template = {
     "Resources": {}
 }
 
+# contains mappings to tell the script how to replace phone numbers found in the destination instance with
+# phone numbers found in the source instance.  
 phone_number_mappings = config["Input"]["PhoneNumberMappings"] if "PhoneNumberMappings" in config["Input"] else {}
 
 client = boto3.client('connect')
 
-# retrieve acount and instance specific arn parts for later substition with CF pseudo paramterers
+# The ARNs for Connect resources contain account specific information. ie:
+# arn:aws:connect:us-east-1:987654321:contact_flow/...
+#
+# The script replaces the account specific parts with their CloudFormation psuedo parameter equivalents.
+# arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:contact_flow/...
+
+# Get the current account number
 sts_client = boto3.client("sts")
 identity = sts_client.get_caller_identity()
 account_number = identity["Account"]
+
+#Get the current region
 connect_client = boto3.client('connect')
 connect_arn = connect_client.describe_instance(InstanceId=config["Input"]["ConnectInstanceId"])["Instance"]["Arn"]
 region = connect_arn.split(":")[3]
+
+# Parse the current partition
+# For standard AWS Regions, the partition is aws. 
+# For resources in other partitions, the partition is aws-partitionname. 
+# For example, the partition for resources in the China (Beijing and Ningxia) Region is aws-cn 
+# and the partition for resources in the AWS GovCloud (US-West) region is aws-us-gov.
+
 partition = connect_arn.split(":")[1]
 
 # initialize id -> CF resource name mappings
@@ -47,6 +70,8 @@ hours_of_operations = {}
 quick_connects = {}
 
 
+# Uses the Connect APIs to retrieve contact flows from the Connect instance
+# the format of the exported contact flows is not the same as what are exported from
 def export_contact_flow(name, resource_type):
     paginator = client.get_paginator('list_contact_flows')
     for page in paginator.paginate(InstanceId=config["Input"]["ConnectInstanceId"],
@@ -64,6 +89,7 @@ def export_contact_flow(name, resource_type):
                                                      "PageSize": 50,
                                     }):
 
+        # we only want to retrieve contact flows specified in the config file
         for contact_flow in page["ContactFlowSummaryList"]:
             if(name not in contact_flow["Name"]):
                 continue
@@ -76,6 +102,8 @@ def export_contact_flow(name, resource_type):
                 print(f"Warning: {contact_flow['Name']} is not published, Unable to export.")
                 continue
             properties["InstanceArn"] = {"Ref": "ConnectInstanceArn"}
+            
+            #Make sure the CloudFormation logical resource name is valud
             resource_name = re.sub(r'[\W_]+', '', contact_flow["Name"])
             contact_flows[contact_flow["Id"]] = resource_name
             template["Resources"].update(
@@ -85,22 +113,29 @@ def export_contact_flow(name, resource_type):
                     }
                 }})
 
-            # List of properties included in the API response that should not be mapped in the template
+            # Some properties  that are returned by the API call should not be included in the output template
             excluded_properties = ["Id", "Arn", "ResponseMetadata", "InstanceId", "Tags", "Description"]
             keys_to_add = list(properties.keys() - set(excluded_properties))
-
             properties_to_add = list(map(lambda x: {x: properties[x]}, keys_to_add))
+
+            # add the contact flow to the the CF template
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
             content = template["Resources"][resource_name]["Properties"]["Content"]
 
             print(resource_name)
+            # Replace the hard coded partition, region, account number and Connect Instance ID with parameters
             content = replace_pseudo_parms(content)
+
+            # some resource types are created by default when you create a Connect instance
+            # the identifiers will be different between accounts.  Map the source identifiers to the destination
             content = replace_with_mappings(content)
             print(json.dumps(json.loads(content),indent=2))
 
+            # Add the resource to the template
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
 
-
+# Uses the Connect APIs to retrieve contact flow modules from the Connect instance
+# the format of the exported contact flows is not the same as what are exported from Connect
 def export_contact_flow_modules(name, resource_type):
     paginator = client.get_paginator('list_contact_flow_modules')
     for page in paginator.paginate(InstanceId=config["Input"]["ConnectInstanceId"],
@@ -140,10 +175,15 @@ def export_contact_flow_modules(name, resource_type):
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
             content = template["Resources"][resource_name]["Properties"]["Content"]
 
+            # Replace the hard coded partition, region, account number and Connect Instance ID with parameters
             content = replace_pseudo_parms(content)
+
+            # some resource types are created by default when you create a Connect instance
+            # the identifiers will be different between accounts.  Map the source identifiers to the destination
             content = replace_with_mappings(content)
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
 
+            # Map the phone number from the destination Connect instance to the source connect instance
             for source_phone, target_phone in phone_number_mappings.items():
                 content = content.replace(source_phone, target_phone)
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
@@ -152,7 +192,8 @@ def export_contact_flow_modules(name, resource_type):
             state = template["Resources"][resource_name]["Properties"]["State"].upper()
             template["Resources"][resource_name]["Properties"]["State"] = state
 
-
+# Uses the Connect APIs to retrieve hours of operations from the Connect instance
+# the format of the exported contact flows is not the same as what are exported from
 def export_hours_of_operation(name, resource_type):
     paginator = client.get_paginator('list_hours_of_operations')
     for page in paginator.paginate(InstanceId=config["Input"]["ConnectInstanceId"],
@@ -170,7 +211,10 @@ def export_hours_of_operation(name, resource_type):
                 HoursOfOperationId=hours_of_operation["Id"].split("/")[-1]
             )["HoursOfOperation"]
 
+            # "ConnectInstanceArn" is defined in the "Parameters" section of the template
             properties["InstanceArn"] = {"Ref": "ConnectInstanceArn"}
+
+            # CF ResourceNames should only contain letters and a '-'
             resource_name = re.sub(r'[\W_]+', '', hours_of_operation["Name"])+"HoursOfOperation"
             hours_of_operations[hours_of_operation["Id"]] = resource_name
             template["Resources"].update(
@@ -179,6 +223,8 @@ def export_hours_of_operation(name, resource_type):
                     "Properties": {
                     }
                 }})
+
+            # Map API response to CF properties and exclude properties that are not supported.
             excluded_properties = [
                 "Id",
                 "Arn",
@@ -194,7 +240,8 @@ def export_hours_of_operation(name, resource_type):
             properties_to_add = list(map(lambda x: {x: properties[x]}, keys_to_add))
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
 
-
+# Uses the Connect APIs to retrieve quick connects from the Connect instance
+# the format of the exported contact flows is not the same as what are exported from
 def export_quick_connects(name, resource_type):
     paginator = client.get_paginator('list_quick_connects')
     for page in paginator.paginate(InstanceId=config["Input"]["ConnectInstanceId"],
@@ -236,11 +283,29 @@ def export_quick_connects(name, resource_type):
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
 
 
+# By the time this method is called, the original arn that is contained in the exported contact flow
+# has been converted from this:
+#
+# arn:aws:connect:us-east-1:987654321:instance/aaaaaa-bbbb-cc1c-dddd-123456789abc/flowid/a1a2a3-dddd-a1b1-dddd-123456789abc
+# 
+# to this
+#
+# arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:flowid/instance/${ConnectInstandId}/flowid/a1a2a3-dddd-a1b1-dddd-123456789abc
+# 
+# Now we need to replace the resource identifier GUIDs with the contact flow ARNs of the newly created resources
+# using the CloudFormation !Ref and !GetAtt intrinsic functions
+#
+# arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:flowid/instance/${ConnectInstandId}/flowid/${SampleFlow.ContactFlowArn}
+# 
+# the CloudFormation resource names to identifiers mapping was created while the ContactFlows were being
+# exported.
 def replace_contact_flowids():
     for resource in template["Resources"]:
         if "Content" not in template["Resources"][resource]["Properties"]:
             continue
         content = json.loads(template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"])
+
+        # Transfer to agent actions can reference contact flows
         transfers = list(filter(lambda t: t["Type"] == "TransferToFlow", content["Actions"]))
         for transfer in transfers:
             contact_flow_arn = transfer["Parameters"]["ContactFlowId"]
@@ -250,8 +315,9 @@ def replace_contact_flowids():
             arn_replaced_content = \
                 template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_arn, new_arn)
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = arn_replaced_content
-        modules = list(filter(lambda t: t["Type"] == "UpdateContactEventHooks", content["Actions"]))
 
+        # As can UpdateContactEventHooks...
+        modules = list(filter(lambda t: t["Type"] == "UpdateContactEventHooks", content["Actions"]))
         for module in modules:
             contact_flow_id = module["Parameters"]["EventHooks"]["CustomerQueue"].split("/")[-1]
             contact_flow_arn = module["Parameters"]["EventHooks"]["CustomerQueue"]
@@ -260,7 +326,13 @@ def replace_contact_flowids():
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = \
                 template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_arn, new_arn)
 
+# Returns the contact flow identifier in the destination instance based on the manifest file
+# by the identifier referenced in the source contact flow
+# 
+# This allows contact flows to reference pre-existing contact flows in the destination Connect instance
+# that are not being exported
 def get_dest_contact_flow_module(contact_flow_id):
+    # first look in the current Connect instance
     contact_flow = client.describe_contact_flow_module(
                 InstanceId=config["Input"]["ConnectInstanceId"],
                 ContactFlowModuleId=contact_flow_id
@@ -273,9 +345,7 @@ def get_dest_contact_flow_module(contact_flow_id):
     }
 
     
-    
-
-
+# This is the same concept as replace_contact_flowids() for contact flow modules
 def replace_contact_module_flowids():
     for resource in template["Resources"]:
         if "Content" not in template["Resources"][resource]["Properties"]:
@@ -305,8 +375,7 @@ def replace_contact_module_flowids():
 
         template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]= [content_string,cf_vars]
 
-        x = 1
-
+# This is the same concept as replace_contact_flowids() for contact flow modules
 def replace_hours_of_operation():
     for resource in template["Resources"]:
         if "Content" not in template["Resources"][resource]["Properties"]:
@@ -330,6 +399,8 @@ def replace_hours_of_operation():
                 template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"][0].replace(hours_arn, new_arn)
 
 
+# There are default audio prompts and queues that come with a Connect instance
+# map the identifiers to the destination Connect instance
 def replace_with_mappings(content):
     content = replace_with_config_mappings(content)
     contact_flow = json.loads(content)
@@ -383,6 +454,12 @@ def replace_pseudo_parms(content):
     return content
 
 
+# Currently, the script exporting:
+#   - hours of operation
+#   - contact flow
+#   - contact flow modules
+
+
 for name in config["ResourceFilters"]["ContactFlows"]:
     # export_quick_connects(name,"AWS::Connect::QuickConnect")
     export_hours_of_operation(name, "AWS::Connect::HoursOfOperation")
@@ -394,6 +471,7 @@ replace_contact_module_flowids()
 replace_hours_of_operation()
 
 
+# Add the parameters section to the CloudFormation template
 template["Parameters"] = {
     "ConnectInstanceID": {
         "Type": "String",
