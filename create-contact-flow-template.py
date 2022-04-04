@@ -126,6 +126,9 @@ def export_contact_flow(name, resource_type):
             # Replace the hard coded partition, region, account number and Connect Instance ID with parameters
             content = replace_pseudo_parms(content)
 
+            # Associate any Lambdas found to the Connect instance
+            attach_lambdas(content)
+
             # some resource types are created by default when you create a Connect instance
             # the identifiers will be different between accounts.  Map the source identifiers to the destination
             content = replace_with_mappings(content)
@@ -259,7 +262,7 @@ def attach_lambdas(content):
                     "Type": "Custom::ConnectAssociateLambda",
                     "Properties": {
                         "InstanceId": {"Ref":"ConnectInstanceID"},
-                        "FunctionArn": lambda_arn,
+                        "FunctionArn": {"Fn::Sub":lambda_arn},
                         "ServiceToken": {"Fn::ImportValue":"CFNConnectAssociateLambda"}
                     }
                 }

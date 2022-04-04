@@ -8,23 +8,7 @@ Transform: AWS::Serverless-2016-10-31
 
 
 Resources:
-  CreateContactFlowCustomResource:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: cfn-create-contact-flow
-      CodeUri: ./custom-resources/create-contact-flow
-      Handler: index.handler
-      Runtime: nodejs12.x
-      Timeout: 900
-      Policies:
-        Statement:
-          - Effect: Allow
-            Action:
-            - connect:CreateContactFlow
-            - connect:UpdateContactFlowContent
-            - connect:UpdateContactFlowName
-            - connect:DescribeContactFlow
-            Resource: "*"
+
   CFNConnectAssociateLambda:
     Type: 'AWS::Serverless::Function'
     Properties:
@@ -54,10 +38,6 @@ Resources:
 
 
 Outputs:
-  CreateContactFlowCustomResource:
-    Value: !GetAtt  CreateContactFlowCustomResource.Arn
-    Export:
-      Name: CFNCreateContactFlow
   CFNConnectAssociateLambda:
     Description: Custom resource to associate a lambda to a connect instance
     Value:

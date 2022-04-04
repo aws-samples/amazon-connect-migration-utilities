@@ -13,6 +13,23 @@ The *Amazon Connect Migration Utilities* contains Python scripts that allow you 
 ## Requirements
 
 - [Python 3.7](https://www.python.org/downloads/)
+- [Docker Desktop]
+
+## Install the prerequisite CloudFormation custom resources
+
+CloudFormation custom resources enable you to write custom provisioning logic in templates that AWS CloudFormation runs anytime you create, update (if you changed the custom resource), or delete stacks. 
+
+The ```create-contact-flow-template.py``` script leverages custom resources to attach Lambdas to your 
+Amazon Connect instance.
+
+### Deploying the custom resources
+
+From the command line, run the following commands. This will deploy AWS Lambda custom resources that can be called by your CloudFormation template.
+
+```bash
+sam build -t cfn-contact-flow-custom-resources.yml --use-container
+sam deploy  --template-file .aws-sam/build/template.yaml --stack-name cfn-contact-flow-custom-resources   --capabilities "CAPABILITY_NAMED_IAM" --resolve-s3
+```
 
 ## Usage
 
@@ -113,9 +130,11 @@ The template requires one parameter, ConnectInstanceId, which should be the inst
 | Contact flows        | export and mapping support                |
 | Contact flow modules | export and mapping support                |
 | Hours of operations  | export                                    |
+| AWS Lambda           | associate                                 |
 | Audio prompts        | mapping                                   |
 | Queues               | mapping                                   |
 | Phone numbers        | mapping                                   |
+
 
 
 Definitions:
@@ -123,6 +142,7 @@ Definitions:
 - export - the script is able to read from a source Connect instance and export the definition in the CloudFormation template
 - mappings - the script is able to read from a manifest file created by ```create-source-manifest-file.py``` and map
   the resource to the corresponding source resource.
+- associate - Referenced resource is associated with the Connect instance. But it has to already exist.
   
 ## Security
 
