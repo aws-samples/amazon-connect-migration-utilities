@@ -55,6 +55,7 @@ connect_client = boto3.client('connect')
 connect_arn = connect_client.describe_instance(InstanceId=config["Input"]["ConnectInstanceId"])["Instance"]["Arn"]
 region = connect_arn.split(":")[3]
 
+
 # Parse the current partition
 # For standard AWS Regions, the partition is aws. 
 # For resources in other partitions, the partition is aws-partitionname. 
@@ -68,7 +69,6 @@ contact_flows = {}
 contact_flow_modules = {}
 hours_of_operations = {}
 quick_connects = {}
-
 
 # Uses the Connect APIs to retrieve contact flows from the Connect instance
 # the format of the exported contact flows is not the same as what are exported from
@@ -101,7 +101,7 @@ def export_contact_flow(name, resource_type):
             except client.exceptions.ContactFlowNotPublishedException:
                 print(f"Warning: {contact_flow['Name']} is not published, Unable to export.")
                 continue
-            properties["InstanceArn"] = {"Ref": "ConnectInstanceArn"}
+            properties["InstanceArn"] = {"Fn::Sub": connect_arn}
             
             #Make sure the CloudFormation logical resource name is valud
             resource_name = re.sub(r'[\W_]+', '', contact_flow["Name"])
@@ -155,7 +155,7 @@ def export_contact_flow_modules(name, resource_type):
             )
 
             properties = properties["ContactFlowModule"]
-            properties["InstanceArn"] = {"Ref": "ConnectInstanceArn"}
+            properties["InstanceArn"] = {"Fn::Sub": connect_arn}
 
             # CF ResourceNames should only contain letters and a '-'
             resource_name = re.sub(r'[\W_]+', '', contact_flow_module["Name"])+"Module"
@@ -211,8 +211,7 @@ def export_hours_of_operation(name, resource_type):
                 HoursOfOperationId=hours_of_operation["Id"].split("/")[-1]
             )["HoursOfOperation"]
 
-            # "ConnectInstanceArn" is defined in the "Parameters" section of the template
-            properties["InstanceArn"] = {"Ref": "ConnectInstanceArn"}
+            properties["InstanceArn"] = {"Fn::Sub": connect_arn}
 
             # CF ResourceNames should only contain letters and a '-'
             resource_name = re.sub(r'[\W_]+', '', hours_of_operation["Name"])+"HoursOfOperation"
@@ -260,7 +259,7 @@ def export_quick_connects(name, resource_type):
                 QuickConnectId=quick_connect["Id"].split("/")[-1]
             )["QuickConnect"]
 
-            properties["InstanceArn"] = {"Ref": "ConnectInstanceArn"}
+            properties["InstanceArn"] = {"Fn::Sub": connect_arn}
             resource_name = re.sub(r'[\W_]+', '', quick_connect["Name"])+"QuickConnect"
             quick_connects[quick_connect["Id"]] = resource_name
             template["Resources"].update(
@@ -434,8 +433,6 @@ def replace_with_mappings_audio_prompt(content, action):
 def replace_with_mappings_queue(content, action):
     if "queue" in action:
         print(action)
-        print("Here")
-        breakpoint()
         text = _.get(action, "queue.text")
         queue_id = _.get(action, "queue.id")
         if(queue_id is not None):
@@ -460,11 +457,14 @@ def replace_pseudo_parms(content):
 #   - contact flow modules
 
 
+connect_arn = replace_pseudo_parms(connect_arn)
+
 for name in config["ResourceFilters"]["ContactFlows"]:
     # export_quick_connects(name,"AWS::Connect::QuickConnect")
     export_hours_of_operation(name, "AWS::Connect::HoursOfOperation")
     export_contact_flow(name, "AWS::Connect::ContactFlow")
     export_contact_flow_modules(name, "AWS::Connect::ContactFlowModule")
+
 
 replace_contact_flowids()
 replace_contact_module_flowids()
@@ -477,13 +477,10 @@ template["Parameters"] = {
         "Type": "String",
         "AllowedPattern": ".+",
         "ConstraintDescription": "ConnectInstanceID is required"
-    },
-    "ConnectInstanceArn": {
-        "Type": "String",
-        "AllowedPattern": ".+",
-        "ConstraintDescription": "ConnectInstanceArn is required"
     }
 }
 
 with open(os.path.join(sys.path[0], config["Output"]["Filename"]), 'w') as f:
     json.dump(template, f, indent=4, default=str)
+
+print(connect_arn)
