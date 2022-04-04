@@ -298,19 +298,7 @@ def replace_contact_module_flowids():
                 new_arn = dest_module["id"]
             else:
                 new_arn = "${" + contact_flow_modules[contact_flow_id] + "}"
-                cf_vars[contact_flow_modules[contact_flow_id]] = {
-                    "Fn::Select":[
-                        3,
-                        {
-                            "Fn::Split":[
-                                "/",
-                                {
-                                    "Fn::GetAtt":[
-                                        "SimpleModuleModule",
-                                        "ContactFlowModuleArn"]
-                                }]
-                        }]
-                }
+ 
 
 
             content_string  = content_string.replace(contact_flow_id, new_arn)
@@ -368,7 +356,6 @@ def replace_with_mappings_audio_prompt(content, action):
                 dest_id = _.get(output_arns, ["PromptSummaryList", text, "Id"])
                 content = content.replace(source_id, dest_id)
                 print(json.dumps(json.loads(content), indent=2))
-                breakpoint()
 
     return content
 
@@ -376,8 +363,10 @@ def replace_with_mappings_audio_prompt(content, action):
 def replace_with_mappings_queue(content, action):
     if "queue" in action:
         print(action)
-        text = _.get(action, "text")
-        queue_id = _.get(action, "id")
+        print("Here")
+        breakpoint()
+        text = _.get(action, "queue.text")
+        queue_id = _.get(action, "queue.id")
         if(queue_id is not None):
             source_id = queue_id.split("/")[-1]
             dest_id = _.get(output_arns, ["QueueSummaryList", text, "Id"])

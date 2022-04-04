@@ -1,6 +1,6 @@
 {
     "Input": {
-        "ConnectInstanceId": "1be04a46-e492-4052-9e4c-0dd8553d85da",
+        "ConnectInstanceId": "ef1e5260-c0d5-4164-bfbe-9be55b73fe1c",
         "PhoneNumberMappings": {
             "+15551234567": "+15557654321",
             "+15556767671": "+16664351235"
@@ -8,13 +8,13 @@
     },
     "ResourceFilters": {
         "ContactFlows": [
-            "Simple"
+            "AOD"
         ]
     },
     "Output": {
         "Filename": "contact-flows.json",
         "TemplateDescription": "Connect Contact Flows",
-        "ConnectInstanceId": "1be04a46-e492-4052-9e4c-0dd8553d85da",
+        "ConnectInstanceId": "2f1b6bff-73f7-4c20-965d-aa833d7eddfd",
         "ManifestFileName":"source-manifest.json"
     }
 }
