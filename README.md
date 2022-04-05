@@ -127,10 +127,10 @@ The template requires one parameter, ConnectInstanceId, which should be the inst
 
 | Resource             | Level of support                          |
 |----------------------|-------------------------------------------|
-| Contact flows        | export and mapping support                |
-| Contact flow modules | export and mapping support                |
+| Contact flows        | export and mapping                        |
+| Contact flow modules | export and mapping                        |
 | Hours of operations  | export                                    |
-| AWS Lambda           | associate                                 |
+| AWS Lambda           | mapping and associate                     |
 | Audio prompts        | mapping                                   |
 | Queues               | mapping                                   |
 | Phone numbers        | mapping                                   |

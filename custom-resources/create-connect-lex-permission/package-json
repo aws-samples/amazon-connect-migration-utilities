@@ -1,5 +1,5 @@
 {
-  "name": "create-connect-lambda-permission",
+  "name": "create-connect-lex-permission",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",

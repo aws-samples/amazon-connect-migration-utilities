@@ -36,6 +36,38 @@ Resources:
             - !Sub "arn:aws:connect:*:${AWS::AccountId}:instance/*"
             - !Sub "arn:aws:lambda:*:${AWS::AccountId}:function:*" 
 
+  LexConnectPermissionCustomResource:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: LexConnectPermissionCustomResource
+      Handler: index.handler
+      Runtime: nodejs12.x
+      CodeUri: ./custom-resources/create-connect-lex-permission
+      Description: 'custom cloudformation resource used to associate a Lex with a Connect instance'
+      MemorySize: 256
+      Timeout: 300
+      Policies:
+        - Statement: 
+          - Sid: Connect
+            Effect: "Allow"
+            Action: 
+            - lex:GetBots
+            - lex:GetBot
+            - lex:CreateResourcePolicy
+            - lex:DeleteResourcePolicy
+            - lex:UpdateResourcePolicy
+            - lex:DescribeBotAlias
+            - lex:ListBotAliases
+            - lex:ListBots
+            - connect:AssociateBot
+            - connect:DisassociateBot
+            - connect:ListBots
+            - connect:AssociateLexBot
+            - connect:DisassociateLexBot
+            - connect:ListLexBots
+            Resource: 
+            - !Sub "arn:aws:connect:*:${AWS::AccountId}:instance/*"
+            - !Sub "arn:aws:lambda:*:${AWS::AccountId}:function:*"
 
 Outputs:
   CFNConnectAssociateLambda:
@@ -46,3 +78,11 @@ Outputs:
       - Arn
     Export:
       Name: CFNConnectAssociateLambda
+  CFNConnectAssociateLexV2Bot:
+    Description: Custom resource to associate a lex bot to a connect instance
+    Value:
+      Fn::GetAtt:
+      - LexConnectPermissionCustomResource
+      - Arn
+    Export:
+      Name: CFNConnectAssociateLexV2Bot

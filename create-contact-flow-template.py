@@ -7,7 +7,6 @@
 #
 #   Lex V2 references must be manually attached to the Connect instance
 #  
-#   Lambdas must be manually attached to the Connect instance
 
 import boto3
 import re
@@ -18,12 +17,14 @@ from functools import reduce
 import pydash as _
 
 # config.json contains the configuration information needed by the rest of the script
+
+print("Reading configuration from config.json file")
 with open(os.path.join(sys.path[0], 'config.json'), "r") as file:
     config = json.load(file)
 
 # The manifest file contains mappings of resources and their identifiers from the source
 # Amazon Connect instance.  This file is created by the create-source-manifest-file.py script
-
+print("Reading the manifest file to obtain identifiers from destination Connect instance")
 with open(os.path.join(sys.path[0], config["Output"]["ManifestFileName"]), "r") as file:
     output_arns = json.load(file)
 
@@ -46,14 +47,18 @@ client = boto3.client('connect')
 # arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:contact_flow/...
 
 # Get the current account number
+print("Retrieving information from current account.")
 sts_client = boto3.client("sts")
 identity = sts_client.get_caller_identity()
 account_number = identity["Account"]
 
+print(f"Current AWS Account {account_number}")
 #Get the current region
 connect_client = boto3.client('connect')
 connect_arn = connect_client.describe_instance(InstanceId=config["Input"]["ConnectInstanceId"])["Instance"]["Arn"]
 region = connect_arn.split(":")[3]
+
+print(f"Current region: {region}")
 
 
 # Parse the current partition
@@ -63,6 +68,7 @@ region = connect_arn.split(":")[3]
 # and the partition for resources in the AWS GovCloud (US-West) region is aws-us-gov.
 
 partition = connect_arn.split(":")[1]
+print("Current partition {partition}")
 
 # initialize id -> CF resource name mappings
 contact_flows = {}
@@ -73,6 +79,7 @@ quick_connects = {}
 # Uses the Connect APIs to retrieve contact flows from the Connect instance
 # the format of the exported contact flows is not the same as what are exported from
 def export_contact_flow(name, resource_type):
+    print("Retrieving contact flows...")
     paginator = client.get_paginator('list_contact_flows')
     for page in paginator.paginate(InstanceId=config["Input"]["ConnectInstanceId"],
                                    ContactFlowTypes=['CONTACT_FLOW',
@@ -94,6 +101,7 @@ def export_contact_flow(name, resource_type):
             if(name not in contact_flow["Name"]):
                 continue
             try:
+                print(f"Calling describe_contact flow for {contact_flow['Name']}")
                 properties = client.describe_contact_flow(
                     InstanceId=config["Input"]["ConnectInstanceId"],
                     ContactFlowId=contact_flow["Id"]
@@ -112,7 +120,7 @@ def export_contact_flow(name, resource_type):
                     "Properties": {
                     }
                 }})
-
+            print(f"Creating resource {resource_name}")
             # Some properties  that are returned by the API call should not be included in the output template
             excluded_properties = ["Id", "Arn", "ResponseMetadata", "InstanceId", "Tags", "Description"]
             keys_to_add = list(properties.keys() - set(excluded_properties))
@@ -122,25 +130,28 @@ def export_contact_flow(name, resource_type):
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
             content = template["Resources"][resource_name]["Properties"]["Content"]
 
-            print(resource_name)
+            print("Processing contact flow content")
             # Replace the hard coded partition, region, account number and Connect Instance ID with parameters
             content = replace_pseudo_parms(content)
 
             # Associate any Lambdas found to the Connect instance
             attach_lambdas(content)
 
+            # Associate any Lex V2 Bots found to the Connect instance
+            attach_lexV2Bots(content)
             # some resource types are created by default when you create a Connect instance
             # the identifiers will be different between accounts.  Map the source identifiers to the destination
             content = replace_with_mappings(content)
-            print(json.dumps(json.loads(content),indent=2))
 
             # Add the resource to the template
+            print("Adding the resource {resource_name} to the template")
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
 
 # Uses the Connect APIs to retrieve contact flow modules from the Connect instance
 # the format of the exported contact flows is not the same as what are exported from Connect
 def export_contact_flow_modules(name, resource_type):
     paginator = client.get_paginator('list_contact_flow_modules')
+    print("Retrieving contact flow modules...")
     for page in paginator.paginate(InstanceId=config["Input"]["ConnectInstanceId"],
                                    ContactFlowModuleState="active",
                                    PaginationConfig={
@@ -152,6 +163,7 @@ def export_contact_flow_modules(name, resource_type):
             if(name not in contact_flow_module["Name"]):
                 continue
 
+            print(f"Calling describe_contact_flow_module for {contact_flow_module['Name']}")
             properties = client.describe_contact_flow_module(
                 InstanceId=config["Input"]["ConnectInstanceId"],
                 ContactFlowModuleId=contact_flow_module["Id"].split("/")[-1]
@@ -163,6 +175,8 @@ def export_contact_flow_modules(name, resource_type):
             # CF ResourceNames should only contain letters and a '-'
             resource_name = re.sub(r'[\W_]+', '', contact_flow_module["Name"])+"Module"
             contact_flow_modules[contact_flow_module["Id"]] = resource_name
+            print(f"Creating resource {resource_name}")
+
             template["Resources"].update(
                 {resource_name: {
                     "Type": resource_type,
@@ -176,13 +190,17 @@ def export_contact_flow_modules(name, resource_type):
             properties_to_add = list(map(lambda x: {x: properties[x]}, keys_to_add))
 
             template["Resources"][resource_name]["Properties"].update(reduce(lambda a, b: dict(a, **b), properties_to_add))
-            content = template["Resources"][resource_name]["Properties"]["Content"]
 
+            content = template["Resources"][resource_name]["Properties"]["Content"]
+            print("Processing contact flow content")
             # Replace the hard coded partition, region, account number and Connect Instance ID with parameters
             content = replace_pseudo_parms(content)
 
             # Attach any Lambdas found to the Connect instance
             attach_lambdas(content)
+
+            # Associate any Lex V2 Bots found to the Connect instance
+            attach_lexV2Bots(content)
 
 
             # some resource types are created by default when you create a Connect instance
@@ -197,12 +215,15 @@ def export_contact_flow_modules(name, resource_type):
 
             # The API returns the state as lowercase.  CF requires it to be uppercase.
             state = template["Resources"][resource_name]["Properties"]["State"].upper()
+            print("Adding the resource {resource_name} to the template")
+
             template["Resources"][resource_name]["Properties"]["State"] = state
 
 
 # Uses the Connect APIs to retrieve hours of operations from the Connect instance
 # the format of the exported contact flows is not the same as what are exported from
 def export_hours_of_operation(name, resource_type):
+    print("Processing hours of operation")
     paginator = client.get_paginator('list_hours_of_operations')
     for page in paginator.paginate(InstanceId=config["Input"]["ConnectInstanceId"],
                                    PaginationConfig={
@@ -214,6 +235,7 @@ def export_hours_of_operation(name, resource_type):
             if(name not in hours_of_operation["Name"]):
                 continue
 
+            print(f"Calling describe_contact_flow_module for {hours_of_operation['Name']}")
             properties = client.describe_hours_of_operation(
                 InstanceId=config["Input"]["ConnectInstanceId"],
                 HoursOfOperationId=hours_of_operation["Id"].split("/")[-1]
@@ -230,7 +252,7 @@ def export_hours_of_operation(name, resource_type):
                     "Properties": {
                     }
                 }})
-
+            print(f"Creating resource {resource_name}")
             # Map API response to CF properties and exclude properties that are not supported.
             excluded_properties = [
                 "Id",
@@ -256,6 +278,8 @@ def attach_lambdas(content):
         lambda_arn = _.get(attachment,"Parameters.LambdaFunctionARN")
         lambda_name = lambda_arn.split(":")[-1]
         resource_name = re.sub(r'[\W_]+', '', lambda_name)+"LambdaPermission"
+
+        print(f"Creating an AttachLambda resource for {lambda_name}")
         template["Resources"].update(
             {
                 resource_name: {
@@ -264,6 +288,41 @@ def attach_lambdas(content):
                         "InstanceId": {"Ref":"ConnectInstanceID"},
                         "FunctionArn": {"Fn::Sub":lambda_arn},
                         "ServiceToken": {"Fn::ImportValue":"CFNConnectAssociateLambda"}
+                    }
+                }
+            })
+
+lex_client = boto3.client('lexv2-models')
+def get_lexbot_details(lex_id):
+    lex_bot_details = lex_client.describe_bot(botId=lex_id.split("/")[1])
+    lex_alias_details = lex_client.describe_bot_alias(botAliasId=lex_id.split("/")[2],botId=lex_id.split("/")[1])
+
+    return {
+        "alias":lex_alias_details["botAliasName"],
+        "name":lex_bot_details["botName"],
+        "botId":lex_bot_details["botId"],
+        "botAliasId":lex_alias_details["botAliasId"]
+    }
+
+def attach_lexV2Bots(content):
+    content =  json.loads(content)
+    lex_attachments = list(filter(lambda t: t["Type"] == "ConnectParticipantWithLexBot", content["Actions"]))
+
+    for attachment in lex_attachments:
+        lex_arn = _.get(attachment,"Parameters.LexV2Bot.AliasArn")
+        lex_id = lex_arn.split(":")[-1]
+        lex_details = get_lexbot_details(lex_id)
+        resource_name = re.sub(r'[\W_]+', '', lex_details["name"])+"LexPermission"
+        print(f"Creating an AttachLex resource for {lex_details['name']}")
+
+        template["Resources"].update(
+            {
+                resource_name: {
+                    "Type": "Custom::ConnectAssociateLex",
+                    "Properties": {
+                        "InstanceId": {"Ref":"ConnectInstanceID"},
+                        "AliasArn": {"Fn::Sub":lex_arn},
+                        "ServiceToken": {"Fn::ImportValue": "CFNConnectAssociateLexV2Bot"}
                     }
                 }
             })
@@ -341,6 +400,7 @@ def replace_contact_flowids():
             contact_flow_id = transfer["Parameters"]["ContactFlowId"].split("/")[-1]
 
             new_arn = contact_flow_arn.replace(contact_flow_id, "${" + contact_flows[contact_flow_id] + ".ContactFlowArn}")
+            print(f"Replaced contact flow reference with {new_arn} in a TransferToFlow action")
             arn_replaced_content = \
                 template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_arn, new_arn)
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = arn_replaced_content
@@ -351,6 +411,7 @@ def replace_contact_flowids():
             contact_flow_id = module["Parameters"]["EventHooks"]["CustomerQueue"].split("/")[-1]
             contact_flow_arn = module["Parameters"]["EventHooks"]["CustomerQueue"]
             new_arn = "${" + contact_flows[contact_flow_id] + ".ContactFlowArn}"
+            print(f"Replaced a contact flow reference with {new_arn} in a UpdateContactEventHooks action")
 
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = \
                 template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_arn, new_arn)
@@ -387,7 +448,6 @@ def replace_contact_module_flowids():
             contact_flow_id = module["Parameters"]["FlowModuleId"]
             
             dest_module = get_dest_contact_flow_module(contact_flow_id)
-            name = dest_module["name"]
             if(contact_flow_id not in contact_flow_modules):
                 if(dest_module["id"] is None):
                     raise Exception(
@@ -396,12 +456,11 @@ def replace_contact_module_flowids():
                         f"in the destination Connect instance")
                 new_arn = dest_module["id"]
             else:
+
                 new_arn = "${" + contact_flow_modules[contact_flow_id] + "}"
- 
 
-
+            print(f"Replaced a contact flow module reference with {new_arn} in a InvokeFlowModule action")
             content_string  = content_string.replace(contact_flow_id, new_arn)
-
         template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]= [content_string,cf_vars]
 
 # This is the same concept as replace_contact_flowids() for contact flow modules
@@ -424,6 +483,7 @@ def replace_hours_of_operation():
                 "${AWS::AccountId}:instance/${ConnectInstanceID}/operating-hours/${" + \
                 hours_of_operations[hours_id]+".HoursOfOperationArn}"
 
+            print(f"Replaced an hours of opertation reference with {new_arn} in a InvokeFlowModule action")
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"][0] =\
                 template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"][0].replace(hours_arn, new_arn)
 
@@ -441,6 +501,7 @@ def replace_with_mappings(content):
     return content
 
 
+
 def replace_with_config_mappings(content):
     for source_phone, target_phone in phone_number_mappings.items():
         content = content.replace(source_phone, target_phone)
@@ -448,6 +509,7 @@ def replace_with_config_mappings(content):
 
 
 def replace_with_mappings_audio_prompt(content, action):
+    print("Remapping audio prompts based on the manifest file...")
     if "audio" in action:
         for audio in action["audio"]:
             if(_.get(audio, "type") == "Prompt"):
@@ -455,14 +517,13 @@ def replace_with_mappings_audio_prompt(content, action):
                 source_id = _.get(audio, "id").split("/")[-1]
                 dest_id = _.get(output_arns, ["PromptSummaryList", text, "Id"])
                 content = content.replace(source_id, dest_id)
-                print(json.dumps(json.loads(content), indent=2))
 
     return content
 
 
 def replace_with_mappings_queue(content, action):
+    print("Remapping queue identifiers based on the manifest file...")
     if "queue" in action:
-        print(action)
         text = _.get(action, "queue.text")
         queue_id = _.get(action, "queue.id")
         if(queue_id is not None):
@@ -513,4 +574,3 @@ template["Parameters"] = {
 with open(os.path.join(sys.path[0], config["Output"]["Filename"]), 'w') as f:
     json.dump(template, f, indent=4, default=str)
 
-print(connect_arn)
