@@ -47,6 +47,7 @@ Resources:
       MemorySize: 256
       Timeout: 300
       Policies:
+        - arn:aws:iam::aws:policy/AmazonLexFullAccess
         - Statement: 
           - Sid: Connect
             Effect: "Allow"
