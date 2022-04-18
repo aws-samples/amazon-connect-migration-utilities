@@ -128,6 +128,41 @@ def get_types():
                 "Arn": module["Arn"],
                 "Id": module["Id"]
             }
+    
+    lexv2_client = boto3.client('lexv2-models')
+    response = lexv2_client.list_bots()
+    bot_definitions = {}
+    while(True):
+        for bot_definition in response["botSummaries"]:
+            bot_definitions[bot_definition["botName"]]={
+                "botId": bot_definition["botId"],
+                "botName": bot_definition["botName"],
+                "botAliases": []
+            }
+        if "nextToken" not in response:
+            break
+        response = lexv2_client.list_bots(nextToken=response["nextToken"])
+
+    
+    for bot_name in bot_definitions:
+        response = lexv2_client.list_bot_aliases(botId=bot_definitions[bot_name]["botId"])
+        while(True):
+            for bot_alias in response["botAliasSummaries"]:
+                bot_definitions[bot_name]["botAliases"].append({
+                    "botAliasId": bot_alias["botAliasId"],
+                    "botAliasName": bot_alias["botAliasName"]
+                })
+            if "nextToken" not in response:
+                break
+            response = lexv2_client.list_bot_aliases(botId=bot_definitions[bot_name]["botId"])
+    
+    mapping["LexBotSummaries"]=bot_definitions
+
+    
+
+
+
+
 
 
 get_types()

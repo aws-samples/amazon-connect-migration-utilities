@@ -13,7 +13,7 @@ The *Amazon Connect Migration Utilities* contains Python scripts that allow you 
 ## Requirements
 
 - [Python 3.7](https://www.python.org/downloads/)
-- [Docker Desktop]
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
 ## Install the prerequisite CloudFormation custom resources
 

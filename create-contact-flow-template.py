@@ -137,8 +137,6 @@ def export_contact_flow(name, resource_type):
             # Associate any Lambdas found to the Connect instance
             attach_lambdas(content)
 
-            # Associate any Lex V2 Bots found to the Connect instance
-            attach_lexV2Bots(content)
             # some resource types are created by default when you create a Connect instance
             # the identifiers will be different between accounts.  Map the source identifiers to the destination
             content = replace_with_mappings(content)
@@ -199,8 +197,7 @@ def export_contact_flow_modules(name, resource_type):
             # Attach any Lambdas found to the Connect instance
             attach_lambdas(content)
 
-            # Associate any Lex V2 Bots found to the Connect instance
-            attach_lexV2Bots(content)
+
 
 
             # some resource types are created by default when you create a Connect instance
@@ -293,30 +290,33 @@ def attach_lambdas(content):
             })
 
 lex_client = boto3.client('lexv2-models')
+
 def get_lexbot_details(lex_id):
     lex_bot_details = lex_client.describe_bot(botId=lex_id.split("/")[1])
     lex_alias_details = lex_client.describe_bot_alias(botAliasId=lex_id.split("/")[2],botId=lex_id.split("/")[1])
+
+    dest_bot = _.get(output_arns,["LexBotSummaries",lex_bot_details["botName"]])
+    dstBotAliasId = list(filter(lambda alias: alias["botAliasName"] == lex_alias_details["botAliasName"],dest_bot["botAliases"]))[0]
 
     return {
         "alias":lex_alias_details["botAliasName"],
         "name":lex_bot_details["botName"],
         "botId":lex_bot_details["botId"],
-        "botAliasId":lex_alias_details["botAliasId"]
+        "botAliasId":lex_alias_details["botAliasId"],
+        "botAliasName":lex_alias_details["botAliasName"],
+        "dstBotId":dest_bot["botId"],
+        "dtsBotAliasId":dstBotAliasId
     }
 
-def attach_lexV2Bots(content):
+def create_lexV2_attachment_resource(content,lex_details):
     content =  json.loads(content)
     lex_attachments = list(filter(lambda t: t["Type"] == "ConnectParticipantWithLexBot", content["Actions"]))
 
     for attachment in lex_attachments:
-        lex_arn = _.get(attachment,"Parameters.LexV2Bot.AliasArn")
-        lex_id = lex_arn.split(":")[-1]
-        lex_details = get_lexbot_details(lex_id)
+        lex_arn = _.get(attachment, "Parameters.LexV2Bot.AliasArn")
         resource_name = re.sub(r'[\W_]+', '', lex_details["name"])+"LexPermission"
         print(f"Creating an AttachLex resource for {lex_details['name']}")
-
-        template["Resources"].update(
-            {
+        return {
                 resource_name: {
                     "Type": "Custom::ConnectAssociateLex",
                     "Properties": {
@@ -325,7 +325,8 @@ def attach_lexV2Bots(content):
                         "ServiceToken": {"Fn::ImportValue": "CFNConnectAssociateLexV2Bot"}
                     }
                 }
-            })
+            }
+
 
 
 # Uses the Connect APIs to retrieve quick connects from the Connect instance
@@ -445,8 +446,7 @@ def replace_contact_module_flowids():
         modules = list(filter(lambda t: t["Type"] == "InvokeFlowModule", content["Actions"]))
         cf_vars = {}
         for module in modules:
-            contact_flow_id = module["Parameters"]["FlowModuleId"]
-            
+            contact_flow_id = module["Parameters"]["FlowModuleId"]          
             dest_module = get_dest_contact_flow_module(contact_flow_id)
             if(contact_flow_id not in contact_flow_modules):
                 if(dest_module["id"] is None):
@@ -462,6 +462,70 @@ def replace_contact_module_flowids():
             print(f"Replaced a contact flow module reference with {new_arn} in a InvokeFlowModule action")
             content_string  = content_string.replace(contact_flow_id, new_arn)
         template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]= [content_string,cf_vars]
+
+def replace_contact_module_flowids():
+    for resource in template["Resources"]:
+        if "Content" not in template["Resources"][resource]["Properties"]:
+            continue
+        content = json.loads(template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"])
+        content_string = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]
+        modules = list(filter(lambda t: t["Type"] == "InvokeFlowModule", content["Actions"]))
+        cf_vars = {}
+        for module in modules:
+            contact_flow_id = module["Parameters"]["FlowModuleId"]          
+            dest_module = get_dest_contact_flow_module(contact_flow_id)
+            if(contact_flow_id not in contact_flow_modules):
+                if(dest_module["id"] is None):
+                    raise Exception(
+                        f"The referenced module ${dest_module['name']} " +
+                        f"in the contact flow ${resource} was not exported and not found in " +
+                        f"in the destination Connect instance")
+                new_arn = dest_module["id"]
+            else:
+                new_arn = "${" + contact_flow_modules[contact_flow_id] + "}"
+
+            print(f"Replaced a contact flow module reference with {new_arn} in a InvokeFlowModule action")
+            content_string  = content_string.replace(contact_flow_id, new_arn)
+        template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]= [content_string,cf_vars]
+
+# arn:${AWS::Partition}:lex:${AWS::Region}:${AWS::AccountId}:bot-alias/RV05CVNUFP/GR8LWG3KQS
+def get_dest_lex_bot(alias_arn,lex_details):
+    dest_id = alias_arn.split(":")[-1]
+    bot_id = dest_id.split("/")[1]
+    alias_id = dest_id.split("/")[2]
+
+    dest_bot = _.get(output_arns,["LexBotSummaries",lex_details["name"]])
+    dest_alias = list(filter(lambda alias: alias["botAliasName"] == lex_details["botAliasName"],dest_bot["botAliases"]))[0]
+    dest_arn = alias_arn.replace(bot_id,dest_bot["botId"]).replace(alias_id, dest_alias["botAliasId"])
+    return dest_arn
+
+
+def replace_lexbot_ids():
+    attachment_resources = []
+    for resource in template["Resources"]:
+        if "Content" not in template["Resources"][resource]["Properties"]:
+            continue
+        contact_flow = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"][0]
+        content = json.loads(contact_flow)
+        lex_actions = list(filter(lambda t: t["Type"] == "ConnectParticipantWithLexBot", content["Actions"]))
+        cf_vars = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"][1]
+        for lex_action in lex_actions:
+            alias_arn =  _.get(lex_action, "Parameters.LexV2Bot.AliasArn")    
+            lex_id = alias_arn.split(":")[-1]
+            lex_details = get_lexbot_details(lex_id)
+            dest_arn = get_dest_lex_bot(alias_arn,lex_details)
+
+#            print(f"Replaced a contact flow module reference with {new_arn} in a InvokeFlowModule action")
+            contact_flow  = contact_flow.replace(alias_arn, dest_arn)
+            attachment_resources.append(create_lexV2_attachment_resource(contact_flow,lex_details))
+
+    template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]= [contact_flow,cf_vars]
+
+    # add resources to add Lex permissions to the Connect instance
+    # This can't be done inline while iterating through the template["Resources"]
+    for attachment in attachment_resources:
+        template["Resources"].update(attachment)
+
 
 # This is the same concept as replace_contact_flowids() for contact flow modules
 def replace_hours_of_operation():
@@ -559,8 +623,8 @@ for name in config["ResourceFilters"]["ContactFlows"]:
 
 replace_contact_flowids()
 replace_contact_module_flowids()
+replace_lexbot_ids()
 replace_hours_of_operation()
-
 
 # Add the parameters section to the CloudFormation template
 template["Parameters"] = {
