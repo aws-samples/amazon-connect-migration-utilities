@@ -130,8 +130,8 @@ The template requires one parameter, ConnectInstanceId, which should be the inst
 | Contact flows        | exports and mappings                      |
 | Contact flow modules | exports and mappings                      |
 | Hours of operations  | exports                                   |
-| AWS Lambda           | mappings and associations                 |
-| Amazon Lex           | associations                              |
+| AWS Lambda           | mappings and permissions                  |
+| Amazon Lex           | mappings and permissions                  |
 | Audio prompts        | mapping                                   |
 | Queues               | mapping                                   |
 | Phone numbers        | mapping                                   |
@@ -143,7 +143,7 @@ Definitions:
 - exports - the script is able to read from a source Connect instance and export the definition in the CloudFormation template
 - mappings - the script is able to read from a manifest file created by ```create-source-manifest-file.py``` and map
   the resource to the corresponding source resource.
-- associations - Referenced resource is associated with the Connect instance. But it has to already exist.
+- permissions - Permission is added to the Connect instance. But it has to already exist.
   
 ## Security
 
