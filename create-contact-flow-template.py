@@ -6,7 +6,6 @@
 #   describe_contact_flow and describe_contact_flow_module will error both in boto3 and from the CLI
 #
 #   Lex V2 references must be manually attached to the Connect instance
-#  
 
 import boto3
 import re
@@ -35,7 +34,7 @@ template = {
 }
 
 # contains mappings to tell the script how to replace phone numbers found in the destination instance with
-# phone numbers found in the source instance.  
+# phone numbers found in the source instance.
 phone_number_mappings = config["Input"]["PhoneNumberMappings"] if "PhoneNumberMappings" in config["Input"] else {}
 
 client = boto3.client('connect')
@@ -53,7 +52,8 @@ identity = sts_client.get_caller_identity()
 account_number = identity["Account"]
 
 print(f"Current AWS Account {account_number}")
-#Get the current region
+
+# Get the current region
 connect_client = boto3.client('connect')
 connect_arn = connect_client.describe_instance(InstanceId=config["Input"]["ConnectInstanceId"])["Instance"]["Arn"]
 region = connect_arn.split(":")[3]
@@ -62,9 +62,9 @@ print(f"Current region: {region}")
 
 
 # Parse the current partition
-# For standard AWS Regions, the partition is aws. 
-# For resources in other partitions, the partition is aws-partitionname. 
-# For example, the partition for resources in the China (Beijing and Ningxia) Region is aws-cn 
+# For standard AWS Regions, the partition is aws.
+# For resources in other partitions, the partition is aws-partitionname.
+# For example, the partition for resources in the China (Beijing and Ningxia) Region is aws-cn
 # and the partition for resources in the AWS GovCloud (US-West) region is aws-us-gov.
 
 partition = connect_arn.split(":")[1]
@@ -75,6 +75,7 @@ contact_flows = {}
 contact_flow_modules = {}
 hours_of_operations = {}
 quick_connects = {}
+
 
 # Uses the Connect APIs to retrieve contact flows from the Connect instance
 # the format of the exported contact flows is not the same as what are exported from
@@ -110,8 +111,8 @@ def export_contact_flow(name, resource_type):
                 print(f"Warning: {contact_flow['Name']} is not published, Unable to export.")
                 continue
             properties["InstanceArn"] = {"Fn::Sub": connect_arn}
-            
-            #Make sure the CloudFormation logical resource name is valud
+
+            # Make sure the CloudFormation logical resource name is valud
             resource_name = re.sub(r'[\W_]+', '', contact_flow["Name"])
             contact_flows[contact_flow["Id"]] = resource_name
             template["Resources"].update(
@@ -144,6 +145,7 @@ def export_contact_flow(name, resource_type):
             # Add the resource to the template
             print("Adding the resource {resource_name} to the template")
             template["Resources"][resource_name]["Properties"]["Content"] = {"Fn::Sub": content}
+
 
 # Uses the Connect APIs to retrieve contact flow modules from the Connect instance
 # the format of the exported contact flows is not the same as what are exported from Connect
@@ -196,9 +198,6 @@ def export_contact_flow_modules(name, resource_type):
 
             # Attach any Lambdas found to the Connect instance
             attach_lambdas(content)
-
-
-
 
             # some resource types are created by default when you create a Connect instance
             # the identifiers will be different between accounts.  Map the source identifiers to the destination
@@ -268,11 +267,11 @@ def export_hours_of_operation(name, resource_type):
 
 
 def attach_lambdas(content):
-    content =  json.loads(content)
+    content = json.loads(content)
     lambda_attachments = list(filter(lambda t: t["Type"] == "InvokeLambdaFunction", content["Actions"]))
 
     for attachment in lambda_attachments:
-        lambda_arn = _.get(attachment,"Parameters.LambdaFunctionARN")
+        lambda_arn = _.get(attachment, "Parameters.LambdaFunctionARN")
         lambda_name = lambda_arn.split(":")[-1]
         resource_name = re.sub(r'[\W_]+', '', lambda_name)+"LambdaPermission"
 
@@ -282,34 +281,36 @@ def attach_lambdas(content):
                 resource_name: {
                     "Type": "Custom::ConnectAssociateLambda",
                     "Properties": {
-                        "InstanceId": {"Ref":"ConnectInstanceID"},
-                        "FunctionArn": {"Fn::Sub":lambda_arn},
-                        "ServiceToken": {"Fn::ImportValue":"CFNConnectAssociateLambda"}
+                        "InstanceId": {"Ref": "ConnectInstanceID"},
+                        "FunctionArn": {"Fn::Sub": lambda_arn},
+                        "ServiceToken": {"Fn::ImportValue": "CFNConnectAssociateLambda"}
                     }
                 }
             })
 
-lex_client = boto3.client('lexv2-models')
 
 def get_lexbot_details(lex_id):
+    lex_client = boto3.client('lexv2-models')
     lex_bot_details = lex_client.describe_bot(botId=lex_id.split("/")[1])
-    lex_alias_details = lex_client.describe_bot_alias(botAliasId=lex_id.split("/")[2],botId=lex_id.split("/")[1])
+    lex_alias_details = lex_client.describe_bot_alias(botAliasId=lex_id.split("/")[2], botId=lex_id.split("/")[1])
 
-    dest_bot = _.get(output_arns,["LexBotSummaries",lex_bot_details["botName"]])
-    dstBotAliasId = list(filter(lambda alias: alias["botAliasName"] == lex_alias_details["botAliasName"],dest_bot["botAliases"]))[0]
+    dest_bot = _.get(output_arns, ["LexBotSummaries", lex_bot_details["botName"]])
+    dstBotAliasId = list(filter(lambda alias: alias["botAliasName"] == lex_alias_details["botAliasName"],
+                         dest_bot["botAliases"]))[0]
 
     return {
-        "alias":lex_alias_details["botAliasName"],
-        "name":lex_bot_details["botName"],
-        "botId":lex_bot_details["botId"],
-        "botAliasId":lex_alias_details["botAliasId"],
-        "botAliasName":lex_alias_details["botAliasName"],
-        "dstBotId":dest_bot["botId"],
-        "dtsBotAliasId":dstBotAliasId
+        "alias": lex_alias_details["botAliasName"],
+        "name": lex_bot_details["botName"],
+        "botId": lex_bot_details["botId"],
+        "botAliasId": lex_alias_details["botAliasId"],
+        "botAliasName": lex_alias_details["botAliasName"],
+        "dstBotId": dest_bot["botId"],
+        "dtsBotAliasId": dstBotAliasId
     }
 
-def create_lexV2_attachment_resource(content,lex_details):
-    content =  json.loads(content)
+
+def create_lexV2_attachment_resource(content, lex_details):
+    content = json.loads(content)
     lex_attachments = list(filter(lambda t: t["Type"] == "ConnectParticipantWithLexBot", content["Actions"]))
 
     for attachment in lex_attachments:
@@ -320,13 +321,12 @@ def create_lexV2_attachment_resource(content,lex_details):
                 resource_name: {
                     "Type": "Custom::ConnectAssociateLex",
                     "Properties": {
-                        "InstanceId": {"Ref":"ConnectInstanceID"},
-                        "AliasArn": {"Fn::Sub":lex_arn},
+                        "InstanceId": {"Ref": "ConnectInstanceID"},
+                        "AliasArn": {"Fn::Sub": lex_arn},
                         "ServiceToken": {"Fn::ImportValue": "CFNConnectAssociateLexV2Bot"}
                     }
                 }
             }
-
 
 
 # Uses the Connect APIs to retrieve quick connects from the Connect instance
@@ -376,16 +376,16 @@ def export_quick_connects(name, resource_type):
 # has been converted from this:
 #
 # arn:aws:connect:us-east-1:987654321:instance/aaaaaa-bbbb-cc1c-dddd-123456789abc/flowid/a1a2a3-dddd-a1b1-dddd-123456789abc
-# 
+#
 # to this
 #
 # arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:flowid/instance/${ConnectInstandId}/flowid/a1a2a3-dddd-a1b1-dddd-123456789abc
-# 
+#
 # Now we need to replace the resource identifier GUIDs with the contact flow ARNs of the newly created resources
 # using the CloudFormation !Ref and !GetAtt intrinsic functions
 #
 # arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:flowid/instance/${ConnectInstandId}/flowid/${SampleFlow.ContactFlowArn}
-# 
+#
 # the CloudFormation resource names to identifiers mapping was created while the ContactFlows were being
 # exported.
 def replace_contact_flowids():
@@ -417,9 +417,10 @@ def replace_contact_flowids():
             template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = \
                 template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"].replace(contact_flow_arn, new_arn)
 
+
 # Returns the contact flow identifier in the destination instance based on the manifest file
 # by the identifier referenced in the source contact flow
-# 
+#
 # This allows contact flows to reference pre-existing contact flows in the destination Connect instance
 # that are not being exported
 def get_dest_contact_flow_module(contact_flow_id):
@@ -429,13 +430,13 @@ def get_dest_contact_flow_module(contact_flow_id):
                 ContactFlowModuleId=contact_flow_id
             )
     contact_flow_name = contact_flow["ContactFlowModule"]["Name"]
-    id = _.get(output_arns,["ContactFlowModulesSummaryList",contact_flow_name,"Id"])
+    id = _.get(output_arns, ["ContactFlowModulesSummaryList", contact_flow_name, "Id"])
     return {
-        "name":contact_flow_name,
-        "id":id
+        "name": contact_flow_name,
+        "id": id
     }
 
-    
+
 # This is the same concept as replace_contact_flowids() for contact flow modules
 def replace_contact_module_flowids():
     for resource in template["Resources"]:
@@ -446,57 +447,32 @@ def replace_contact_module_flowids():
         modules = list(filter(lambda t: t["Type"] == "InvokeFlowModule", content["Actions"]))
         cf_vars = {}
         for module in modules:
-            contact_flow_id = module["Parameters"]["FlowModuleId"]          
+            contact_flow_id = module["Parameters"]["FlowModuleId"]
             dest_module = get_dest_contact_flow_module(contact_flow_id)
             if(contact_flow_id not in contact_flow_modules):
                 if(dest_module["id"] is None):
                     raise Exception(
                         f"The referenced module ${dest_module['name']} " +
                         f"in the contact flow ${resource} was not exported and not found in " +
-                        f"in the destination Connect instance")
+                        "in the destination Connect instance")
                 new_arn = dest_module["id"]
             else:
 
                 new_arn = "${" + contact_flow_modules[contact_flow_id] + "}"
 
             print(f"Replaced a contact flow module reference with {new_arn} in a InvokeFlowModule action")
-            content_string  = content_string.replace(contact_flow_id, new_arn)
-        template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]= [content_string,cf_vars]
+            content_string = content_string.replace(contact_flow_id, new_arn)
+        template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = [content_string, cf_vars]
 
-def replace_contact_module_flowids():
-    for resource in template["Resources"]:
-        if "Content" not in template["Resources"][resource]["Properties"]:
-            continue
-        content = json.loads(template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"])
-        content_string = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]
-        modules = list(filter(lambda t: t["Type"] == "InvokeFlowModule", content["Actions"]))
-        cf_vars = {}
-        for module in modules:
-            contact_flow_id = module["Parameters"]["FlowModuleId"]          
-            dest_module = get_dest_contact_flow_module(contact_flow_id)
-            if(contact_flow_id not in contact_flow_modules):
-                if(dest_module["id"] is None):
-                    raise Exception(
-                        f"The referenced module ${dest_module['name']} " +
-                        f"in the contact flow ${resource} was not exported and not found in " +
-                        f"in the destination Connect instance")
-                new_arn = dest_module["id"]
-            else:
-                new_arn = "${" + contact_flow_modules[contact_flow_id] + "}"
 
-            print(f"Replaced a contact flow module reference with {new_arn} in a InvokeFlowModule action")
-            content_string  = content_string.replace(contact_flow_id, new_arn)
-        template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]= [content_string,cf_vars]
-
-# arn:${AWS::Partition}:lex:${AWS::Region}:${AWS::AccountId}:bot-alias/RV05CVNUFP/GR8LWG3KQS
-def get_dest_lex_bot(alias_arn,lex_details):
+def get_dest_lex_bot(alias_arn, lex_details):
     dest_id = alias_arn.split(":")[-1]
     bot_id = dest_id.split("/")[1]
     alias_id = dest_id.split("/")[2]
 
-    dest_bot = _.get(output_arns,["LexBotSummaries",lex_details["name"]])
-    dest_alias = list(filter(lambda alias: alias["botAliasName"] == lex_details["botAliasName"],dest_bot["botAliases"]))[0]
-    dest_arn = alias_arn.replace(bot_id,dest_bot["botId"]).replace(alias_id, dest_alias["botAliasId"])
+    dest_bot = _.get(output_arns, ["LexBotSummaries", lex_details["name"]])
+    dest_alias = list(filter(lambda alias: alias["botAliasName"] == lex_details["botAliasName"], dest_bot["botAliases"]))[0]
+    dest_arn = alias_arn.replace(bot_id, dest_bot["botId"]).replace(alias_id, dest_alias["botAliasId"])
     return dest_arn
 
 
@@ -510,16 +486,16 @@ def replace_lexbot_ids():
         lex_actions = list(filter(lambda t: t["Type"] == "ConnectParticipantWithLexBot", content["Actions"]))
         cf_vars = template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"][1]
         for lex_action in lex_actions:
-            alias_arn =  _.get(lex_action, "Parameters.LexV2Bot.AliasArn")    
+            alias_arn = _.get(lex_action, "Parameters.LexV2Bot.AliasArn")
             lex_id = alias_arn.split(":")[-1]
             lex_details = get_lexbot_details(lex_id)
-            dest_arn = get_dest_lex_bot(alias_arn,lex_details)
+            dest_arn = get_dest_lex_bot(alias_arn, lex_details)
 
 #            print(f"Replaced a contact flow module reference with {new_arn} in a InvokeFlowModule action")
-            contact_flow  = contact_flow.replace(alias_arn, dest_arn)
-            attachment_resources.append(create_lexV2_attachment_resource(contact_flow,lex_details))
+            contact_flow = contact_flow.replace(alias_arn, dest_arn)
+            attachment_resources.append(create_lexV2_attachment_resource(contact_flow, lex_details))
 
-    template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"]= [contact_flow,cf_vars]
+    template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = [contact_flow, cf_vars]
 
     # add resources to add Lex permissions to the Connect instance
     # This can't be done inline while iterating through the template["Resources"]
@@ -563,7 +539,6 @@ def replace_with_mappings(content):
         content = replace_with_mappings_audio_prompt(content, action)
         content = replace_with_mappings_queue(content, action)
     return content
-
 
 
 def replace_with_config_mappings(content):
@@ -637,4 +612,3 @@ template["Parameters"] = {
 
 with open(os.path.join(sys.path[0], config["Output"]["Filename"]), 'w') as f:
     json.dump(template, f, indent=4, default=str)
-
