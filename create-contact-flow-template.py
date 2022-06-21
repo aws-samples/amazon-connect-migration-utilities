@@ -15,66 +15,20 @@ import json
 from functools import reduce
 import pydash as _
 
-# config.json contains the configuration information needed by the rest of the script
-
-print("Reading configuration from config.json file")
-with open(os.path.join(sys.path[0], 'config.json'), "r") as file:
-    config = json.load(file)
-
-# The manifest file contains mappings of resources and their identifiers from the source
-# Amazon Connect instance.  This file is created by the create-source-manifest-file.py script
-print("Reading the manifest file to obtain identifiers from destination Connect instance")
-with open(os.path.join(sys.path[0], config["Output"]["ManifestFileName"]), "r") as file:
-    output_arns = json.load(file)
-
-template = {
-    "AWSTemplateFormatVersion": "2010-09-09",
-    "Description": config["Output"]["TemplateDescription"],
-    "Resources": {}
-}
-
-# contains mappings to tell the script how to replace phone numbers found in the destination instance with
-# phone numbers found in the source instance.
-phone_number_mappings = config["Input"]["PhoneNumberMappings"] if "PhoneNumberMappings" in config["Input"] else {}
-
-client = boto3.client('connect')
-
-# The ARNs for Connect resources contain account specific information. ie:
-# arn:aws:connect:us-east-1:987654321:contact_flow/...
-#
-# The script replaces the account specific parts with their CloudFormation psuedo parameter equivalents.
-# arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:contact_flow/...
-
-# Get the current account number
-print("Retrieving information from current account.")
-sts_client = boto3.client("sts")
-identity = sts_client.get_caller_identity()
-account_number = identity["Account"]
-
-print(f"Current AWS Account {account_number}")
-
-# Get the current region
-connect_client = boto3.client('connect')
-connect_arn = connect_client.describe_instance(InstanceId=config["Input"]["ConnectInstanceId"])["Instance"]["Arn"]
-region = connect_arn.split(":")[3]
-
-print(f"Current region: {region}")
 
 
-# Parse the current partition
-# For standard AWS Regions, the partition is aws.
-# For resources in other partitions, the partition is aws-partitionname.
-# For example, the partition for resources in the China (Beijing and Ningxia) Region is aws-cn
-# and the partition for resources in the AWS GovCloud (US-West) region is aws-us-gov.
+def get_current_region():
+    easy_checks = [
+        # check if set through ENV vars
+        os.environ.get('AWS_REGION'),
+        os.environ.get('AWS_DEFAULT_REGION'),
+        boto3.DEFAULT_SESSION.region_name if boto3.DEFAULT_SESSION else None,
+        boto3.Session().region_name,
+    ]
+    for region in easy_checks:
+        if region:
+            return region
 
-partition = connect_arn.split(":")[1]
-print("Current partition {partition}")
-
-# initialize id -> CF resource name mappings
-contact_flows = {}
-contact_flow_modules = {}
-hours_of_operations = {}
-quick_connects = {}
 
 
 # Uses the Connect APIs to retrieve contact flows from the Connect instance
@@ -290,7 +244,7 @@ def attach_lambdas(content):
 
 
 def get_lexbot_details(lex_id):
-    lex_client = boto3.client('lexv2-models')
+    lex_client = boto3.client('lexv2-models',region_name=get_current_region())
     lex_bot_details = lex_client.describe_bot(botId=lex_id.split("/")[1])
     lex_alias_details = lex_client.describe_bot_alias(botAliasId=lex_id.split("/")[2], botId=lex_id.split("/")[1])
 
@@ -409,8 +363,11 @@ def replace_contact_flowids():
         # As can UpdateContactEventHooks...
         modules = list(filter(lambda t: t["Type"] == "UpdateContactEventHooks", content["Actions"]))
         for module in modules:
-            contact_flow_id = module["Parameters"]["EventHooks"]["CustomerQueue"].split("/")[-1]
-            contact_flow_arn = module["Parameters"]["EventHooks"]["CustomerQueue"]
+            customer_queue = _.get(module,"Parameters.EventHooks.CustomerQueue")
+            if(customer_queue is None):
+                continue
+            contact_flow_id = customer_queue.split("/")[-1]
+            contact_flow_arn = customer_queue
             new_arn = "${" + contact_flows[contact_flow_id] + ".ContactFlowArn}"
             print(f"Replaced a contact flow reference with {new_arn} in a UpdateContactEventHooks action")
 
@@ -495,7 +452,7 @@ def replace_lexbot_ids():
             contact_flow = contact_flow.replace(alias_arn, dest_arn)
             attachment_resources.append(create_lexV2_attachment_resource(contact_flow, lex_details))
 
-    template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = [contact_flow, cf_vars]
+        template["Resources"][resource]["Properties"]["Content"]["Fn::Sub"] = [contact_flow, cf_vars]
 
     # add resources to add Lex permissions to the Connect instance
     # This can't be done inline while iterating through the template["Resources"]
@@ -568,7 +525,8 @@ def replace_with_mappings_queue(content, action):
         if(queue_id is not None):
             source_id = queue_id.split("/")[-1]
             dest_id = _.get(output_arns, ["QueueSummaryList", text, "Id"])
-            content = content.replace(source_id, dest_id)
+            if dest_id is not None:
+                content = content.replace(source_id, dest_id)
 
     return content
 
@@ -580,6 +538,71 @@ def replace_pseudo_parms(content):
     content = content.replace(config["Input"]["ConnectInstanceId"], "${ConnectInstanceID}")
     return content
 
+
+# config.json contains the configuration information needed by the rest of the script
+
+print("Reading configuration from config.json file")
+with open(os.path.join(sys.path[0], 'config.json'), "r") as file:
+    config = json.load(file)
+
+# The manifest file contains mappings of resources and their identifiers from the source
+# Amazon Connect instance.  This file is created by the create-source-manifest-file.py script
+print("Reading the manifest file to obtain identifiers from destination Connect instance")
+with open(os.path.join(sys.path[0], config["Output"]["ManifestFileName"]), "r") as file:
+    output_arns = json.load(file)
+
+template = {
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": config["Output"]["TemplateDescription"],
+    "Resources": {}
+}
+
+# contains mappings to tell the script how to replace phone numbers found in the destination instance with
+# phone numbers found in the source instance.
+phone_number_mappings = config["Input"]["PhoneNumberMappings"] if "PhoneNumberMappings" in config["Input"] else {}
+
+client = boto3.client('connect',region_name=get_current_region())
+
+# The ARNs for Connect resources contain account specific information. ie:
+# arn:aws:connect:us-east-1:987654321:contact_flow/...
+#
+# The script replaces the account specific parts with their CloudFormation psuedo parameter equivalents.
+# arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:contact_flow/...
+
+# Get the current account number
+print("Retrieving information from current account.")
+sts_client = boto3.client("sts")
+identity = sts_client.get_caller_identity()
+account_number = identity["Account"]
+
+print(f"Current AWS Account {account_number}")
+
+# Get the current region
+region = get_current_region()
+
+connect_client = boto3.client('connect',region_name=region)
+
+print(f"Current region: {region}")
+connect_instance_id =  config["Input"]["ConnectInstanceId"]
+print(f"Retrieving resource from connect instance:{connect_instance_id}")
+connect_arn = connect_client.describe_instance(InstanceId=connect_instance_id)["Instance"]["Arn"]
+
+
+
+# Parse the current partition
+# For standard AWS Regions, the partition is aws.
+# For resources in other partitions, the partition is aws-partitionname.
+# For example, the partition for resources in the China (Beijing and Ningxia) Region is aws-cn
+# and the partition for resources in the AWS GovCloud (US-West) region is aws-us-gov.
+
+partition = connect_arn.split(":")[1]
+print("Current partition {partition}")
+
+# initialize id -> CF resource name mappings
+contact_flows = {}
+contact_flow_modules = {}
+hours_of_operations = {}
+quick_connects = {}
 
 # Currently, the script exporting:
 #   - hours of operation

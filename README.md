@@ -68,6 +68,13 @@ First create a ```config.json``` file in the root project directory.
 
 and then run the create-source-manifest-file from the account with the *source* Connect instance.
 
+*Note: The script currently does not support the ```--region``` option.  Set your region by running the following command from the command line.
+
+```
+export AWS_DEFAULT_REGION=<YOUR REGION>
+```
+
+
 ```bash
 python3 create-source-manifest-file.py
 ```
